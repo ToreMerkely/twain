@@ -120,4 +120,80 @@ QVector<Hunk> compute(const QStringList& left, const QStringList& right) {
     return hunks;
 }
 
+namespace {
+
+struct Token {
+    QString text;
+    int start;
+    int length;
+};
+
+QVector<Token> tokenize(const QString& line) {
+    QVector<Token> result;
+    const int n = line.size();
+    int i = 0;
+    while (i < n) {
+        const QChar c = line[i];
+        const bool isWord = c.isLetterOrNumber() || c == QLatin1Char('_');
+        if (isWord) {
+            int j = i + 1;
+            while (j < n) {
+                const QChar c2 = line[j];
+                if (!c2.isLetterOrNumber() && c2 != QLatin1Char('_')) break;
+                ++j;
+            }
+            result.append({line.mid(i, j - i), i, j - i});
+            i = j;
+        } else {
+            result.append({line.mid(i, 1), i, 1});
+            ++i;
+        }
+    }
+    return result;
+}
+
+}  // namespace
+
+LineDiff lineDiff(const QString& left, const QString& right) {
+    const auto tl = tokenize(left);
+    const auto tr = tokenize(right);
+
+    QStringList ls, rs;
+    ls.reserve(tl.size());
+    rs.reserve(tr.size());
+    for (const auto& t : tl) ls.append(t.text);
+    for (const auto& t : tr) rs.append(t.text);
+
+    const auto hunks = compute(ls, rs);
+
+    LineDiff out;
+    for (const auto& h : hunks) {
+        if (h.op == Op::Equal) {
+            const int ls_ = tl[h.leftStart].start;
+            const int le_ = tl[h.leftStart + h.leftCount - 1].start +
+                            tl[h.leftStart + h.leftCount - 1].length;
+            out.left.append({ls_, le_ - ls_, false});
+            const int rs2 = tr[h.rightStart].start;
+            const int re2 = tr[h.rightStart + h.rightCount - 1].start +
+                            tr[h.rightStart + h.rightCount - 1].length;
+            out.right.append({rs2, re2 - rs2, false});
+        } else if (h.op == Op::Delete) {
+            if (h.leftCount > 0) {
+                const int s = tl[h.leftStart].start;
+                const int e = tl[h.leftStart + h.leftCount - 1].start +
+                              tl[h.leftStart + h.leftCount - 1].length;
+                out.left.append({s, e - s, true});
+            }
+        } else {
+            if (h.rightCount > 0) {
+                const int s = tr[h.rightStart].start;
+                const int e = tr[h.rightStart + h.rightCount - 1].start +
+                              tr[h.rightStart + h.rightCount - 1].length;
+                out.right.append({s, e - s, true});
+            }
+        }
+    }
+    return out;
+}
+
 }  // namespace Diff

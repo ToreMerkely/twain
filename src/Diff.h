@@ -17,4 +17,17 @@ struct Hunk {
 
 QVector<Hunk> compute(const QStringList& left, const QStringList& right);
 
+struct LineSegment {
+    int start;    // character offset within the line
+    int length;
+    bool differ;  // true = unique to this side, false = matched the other side
+};
+
+struct LineDiff {
+    QVector<LineSegment> left;
+    QVector<LineSegment> right;
+};
+
+LineDiff lineDiff(const QString& left, const QString& right);
+
 }  // namespace Diff

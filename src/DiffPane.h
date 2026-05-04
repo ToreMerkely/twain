@@ -14,6 +14,7 @@ struct DiffRow {
     QString text;
     Diff::Op kind;    // Equal, Delete, Insert (filler rows use kind of the surrounding hunk)
     bool filler;
+    QVector<Diff::LineSegment> segments;  // intra-line highlighting; empty if not paired
 };
 
 class DiffPane : public QPlainTextEdit {

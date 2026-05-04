@@ -117,16 +117,27 @@ static void buildAlignedRows(const QStringList& left, const QStringList& right,
         diffRowStarts.append(leftRows.size());
         const int rows = qMax(hasDel ? del.leftCount : 0, hasIns ? ins.rightCount : 0);
         for (int k = 0; k < rows; ++k) {
-            if (hasDel && k < del.leftCount) {
-                leftRows.append({del.leftStart + k, left[del.leftStart + k], Diff::Op::Delete, false});
+            const bool leftReal = hasDel && k < del.leftCount;
+            const bool rightReal = hasIns && k < ins.rightCount;
+
+            DiffRow lr, rr;
+            if (leftReal) {
+                lr = {del.leftStart + k, left[del.leftStart + k], Diff::Op::Delete, false, {}};
             } else {
-                leftRows.append({-1, QString(), Diff::Op::Delete, true});
+                lr = {-1, QString(), Diff::Op::Delete, true, {}};
             }
-            if (hasIns && k < ins.rightCount) {
-                rightRows.append({ins.rightStart + k, right[ins.rightStart + k], Diff::Op::Insert, false});
+            if (rightReal) {
+                rr = {ins.rightStart + k, right[ins.rightStart + k], Diff::Op::Insert, false, {}};
             } else {
-                rightRows.append({-1, QString(), Diff::Op::Insert, true});
+                rr = {-1, QString(), Diff::Op::Insert, true, {}};
             }
+            if (leftReal && rightReal) {
+                const auto ld = Diff::lineDiff(lr.text, rr.text);
+                lr.segments = ld.left;
+                rr.segments = ld.right;
+            }
+            leftRows.append(lr);
+            rightRows.append(rr);
         }
     }
 }

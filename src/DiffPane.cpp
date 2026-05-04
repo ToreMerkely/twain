@@ -37,6 +37,8 @@ QColor colorFor(Diff::Op op, bool filler) {
     }
 }
 
+QColor segmentColor() { return QColor(255, 150, 150); }
+
 }  // namespace
 
 DiffPane::DiffPane(QWidget* parent) : QPlainTextEdit(parent) {
@@ -77,16 +79,30 @@ void DiffPane::applyRowBackgrounds() {
     QTextDocument* doc = document();
     for (int i = 0; i < m_rows.size(); ++i) {
         const auto& r = m_rows[i];
-        if (r.kind == Diff::Op::Equal && !r.filler) continue;
-
-        QTextEdit::ExtraSelection sel;
-        sel.format.setBackground(colorFor(r.kind, r.filler));
-        sel.format.setProperty(QTextFormat::FullWidthSelection, true);
         QTextBlock block = doc->findBlockByNumber(i);
         if (!block.isValid()) continue;
-        sel.cursor = QTextCursor(block);
-        sel.cursor.clearSelection();
-        selections.append(sel);
+
+        if (r.kind != Diff::Op::Equal || r.filler) {
+            QTextEdit::ExtraSelection sel;
+            sel.format.setBackground(colorFor(r.kind, r.filler));
+            sel.format.setProperty(QTextFormat::FullWidthSelection, true);
+            sel.cursor = QTextCursor(block);
+            sel.cursor.clearSelection();
+            selections.append(sel);
+        }
+
+        for (const auto& seg : r.segments) {
+            if (!seg.differ) continue;
+            QTextEdit::ExtraSelection ssel;
+            ssel.format.setBackground(segmentColor());
+            QTextCursor c(block);
+            const int start = block.position() + seg.start;
+            const int end = start + seg.length;
+            c.setPosition(start);
+            c.setPosition(end, QTextCursor::KeepAnchor);
+            ssel.cursor = c;
+            selections.append(ssel);
+        }
     }
     setExtraSelections(selections);
 }
