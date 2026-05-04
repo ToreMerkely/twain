@@ -16,6 +16,8 @@ public:
     bool setFiles(const QString& leftPath, const QString& rightPath, QString* error = nullptr);
     int differenceCount() const { return m_diffRows.size(); }
     int currentDifference() const { return m_currentDiff; }
+    QString leftPath() const { return m_leftPath; }
+    QString rightPath() const { return m_rightPath; }
 
     void nextDifference();
     void prevDifference();
@@ -34,6 +36,8 @@ private:
 
     QVector<int> m_diffRows;
     int m_currentDiff = -1;
+    QString m_leftPath;
+    QString m_rightPath;
 
     void syncScroll(DiffPane* source, DiffPane* target, int value);
     void goToDiff(int index);

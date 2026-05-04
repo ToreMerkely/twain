@@ -110,8 +110,8 @@ TreeCompareView::TreeCompareView(QWidget* parent) : QWidget(parent) {
     connect(m_right, &QTreeView::expanded, this, &TreeCompareView::onRightExpanded);
     connect(m_right, &QTreeView::collapsed, this, &TreeCompareView::onRightCollapsed);
 
-    connect(m_left, &QTreeView::doubleClicked, this, &TreeCompareView::onDoubleClicked);
-    connect(m_right, &QTreeView::doubleClicked, this, &TreeCompareView::onDoubleClicked);
+    connect(m_left, &QTreeView::activated, this, &TreeCompareView::onDoubleClicked);
+    connect(m_right, &QTreeView::activated, this, &TreeCompareView::onDoubleClicked);
 }
 
 void TreeCompareView::onLeftExpanded(const QModelIndex& index) {
@@ -164,6 +164,12 @@ bool TreeCompareView::setFolders(const QString& leftPath, const QString& rightPa
     for (int i = 0; i < TreeCompareModel::kColCount; ++i) m_left->resizeColumnToContents(i);
     for (int i = 0; i < TreeCompareModel::kColCount; ++i) m_right->resizeColumnToContents(i);
     m_left->expandToDepth(0);
+    if (m_model->rowCount() > 0) {
+        const QModelIndex first = m_model->index(0, 0);
+        m_left->setCurrentIndex(first);
+        m_left->scrollTo(first);
+    }
+    m_left->setFocus();
     emit comparisonUpdated();
     return true;
 }
@@ -171,6 +177,94 @@ bool TreeCompareView::setFolders(const QString& leftPath, const QString& rightPa
 void TreeCompareView::setFilter(TreeCompareModel::FilterMode mode) {
     m_model->setFilter(mode);
     m_left->expandToDepth(0);
+}
+
+static QModelIndex nextDocOrderIndex(const QAbstractItemModel* model, const QModelIndex& curr) {
+    if (curr.isValid() && model->rowCount(curr) > 0) {
+        return model->index(0, 0, curr);
+    }
+    QModelIndex idx = curr;
+    while (idx.isValid()) {
+        const QModelIndex parent = idx.parent();
+        const int row = idx.row();
+        if (row + 1 < model->rowCount(parent)) {
+            return model->index(row + 1, 0, parent);
+        }
+        idx = parent;
+    }
+    return {};
+}
+
+static QModelIndex prevDocOrderIndex(const QAbstractItemModel* model, const QModelIndex& curr) {
+    if (!curr.isValid()) {
+        const int rc = model->rowCount();
+        if (rc == 0) return {};
+        QModelIndex idx = model->index(rc - 1, 0);
+        while (model->rowCount(idx) > 0) {
+            idx = model->index(model->rowCount(idx) - 1, 0, idx);
+        }
+        return idx;
+    }
+    const int row = curr.row();
+    const QModelIndex parent = curr.parent();
+    if (row > 0) {
+        QModelIndex prev = model->index(row - 1, 0, parent);
+        while (model->rowCount(prev) > 0) {
+            prev = model->index(model->rowCount(prev) - 1, 0, prev);
+        }
+        return prev;
+    }
+    return parent;
+}
+
+QPair<QString, QString> TreeCompareView::nextDifferentFile(bool open) {
+    if (m_model->rowCount() == 0) return {};
+
+    QModelIndex idx = nextDocOrderIndex(m_model, m_left->currentIndex());
+    if (!idx.isValid()) return {};
+
+    while (idx.isValid()) {
+        const auto* e = m_model->entryFor(idx);
+        if (e && !e->isDir && e->status != TreeCompare::Status::Same) {
+            QModelIndex p = idx.parent();
+            while (p.isValid()) {
+                m_left->expand(p);
+                p = p.parent();
+            }
+            m_left->setCurrentIndex(idx);
+            m_left->scrollTo(idx);
+            m_left->setFocus();
+            if (open) emit fileActivated(e->leftPath, e->rightPath);
+            return {e->leftPath, e->rightPath};
+        }
+        idx = nextDocOrderIndex(m_model, idx);
+    }
+    return {};
+}
+
+QPair<QString, QString> TreeCompareView::prevDifferentFile(bool open) {
+    if (m_model->rowCount() == 0) return {};
+
+    QModelIndex idx = prevDocOrderIndex(m_model, m_left->currentIndex());
+    if (!idx.isValid()) return {};
+
+    while (idx.isValid()) {
+        const auto* e = m_model->entryFor(idx);
+        if (e && !e->isDir && e->status != TreeCompare::Status::Same) {
+            QModelIndex p = idx.parent();
+            while (p.isValid()) {
+                m_left->expand(p);
+                p = p.parent();
+            }
+            m_left->setCurrentIndex(idx);
+            m_left->scrollTo(idx);
+            m_left->setFocus();
+            if (open) emit fileActivated(e->leftPath, e->rightPath);
+            return {e->leftPath, e->rightPath};
+        }
+        idx = prevDocOrderIndex(m_model, idx);
+    }
+    return {};
 }
 
 TreeCompareModel::FilterMode TreeCompareView::filter() const {

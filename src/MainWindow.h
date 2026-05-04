@@ -9,14 +9,12 @@ class QAction;
 class QComboBox;
 class QLabel;
 class QMenu;
-class QStackedWidget;
+class QTabWidget;
 class TreeCompareView;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
 public:
-    enum class Mode { File, Folder };
-
     explicit MainWindow(QWidget* parent = nullptr);
     ~MainWindow() override;
 
@@ -34,12 +32,14 @@ private slots:
     void refresh();
     void nextDifference();
     void prevDifference();
-    void back();
+    void nextDifferentFile();
     void showAbout();
     void rebuildRecentMenu();
     void rebuildRecentFoldersMenu();
     void onFileActivatedFromTree(const QString& leftPath, const QString& rightPath);
     void onFolderComparisonUpdated();
+    void onTabChanged(int index);
+    void onTabCloseRequested(int index);
 
 private:
     void createActions();
@@ -52,15 +52,9 @@ private:
     void readSettings();
     void writeSettings();
     void rememberRecentPair(const QString& prefix, const QString& left, const QString& right);
-    void setMode(Mode m);
 
-    Mode m_mode = Mode::File;
     QString m_leftPath;
     QString m_rightPath;
-    QString m_leftFolder;
-    QString m_rightFolder;
-    QString m_lastFolderPairLeft;
-    QString m_lastFolderPairRight;
 
     QAction* m_actOpenPair = nullptr;
     QAction* m_actOpenLeft = nullptr;
@@ -70,7 +64,8 @@ private:
     QAction* m_actQuit = nullptr;
     QAction* m_actNextDiff = nullptr;
     QAction* m_actPrevDiff = nullptr;
-    QAction* m_actBack = nullptr;
+    QAction* m_actNextDiffFile = nullptr;
+    QAction* m_actCloseTab = nullptr;
     QAction* m_actAbout = nullptr;
 
     QMenu* m_recentMenu = nullptr;
@@ -80,9 +75,17 @@ private:
     QLabel* m_rightPathLabel = nullptr;
     QLabel* m_diffCountLabel = nullptr;
 
-    QStackedWidget* m_stack = nullptr;
-    DiffView* m_diffView = nullptr;
-    TreeCompareView* m_treeView = nullptr;
+    QTabWidget* m_tabs = nullptr;
     QComboBox* m_filterCombo = nullptr;
     QAction* m_filterComboAction = nullptr;
+
+    DiffView* currentDiffView() const;
+    TreeCompareView* currentTreeView() const;
+    DiffView* findDiffTabForPair(const QString& left, const QString& right) const;
+    TreeCompareView* findTreeTabForPair(const QString& left, const QString& right) const;
+    DiffView* createDiffTab(const QString& left, const QString& right);
+    TreeCompareView* createTreeTab(const QString& left, const QString& right);
+    void updateDiffTabTitle(DiffView* view);
+    void updateTreeTabTitle(TreeCompareView* view);
+    void updateForCurrentTab();
 };

@@ -16,12 +16,12 @@
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QSettings>
-#include <QStackedWidget>
 #include <QStatusBar>
+#include <QStyle>
+#include <QTabWidget>
+#include <QToolBar>
 
 #include "TreeCompareModel.h"
-#include <QStyle>
-#include <QToolBar>
 
 namespace {
 constexpr int kMaxRecent = 10;
@@ -39,29 +39,17 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     createToolBar();
     createStatusBar();
 
-    m_diffView = new DiffView(this);
-    m_treeView = new TreeCompareView(this);
-    m_stack = new QStackedWidget(this);
-    m_stack->addWidget(m_diffView);   // index 0 = file
-    m_stack->addWidget(m_treeView);   // index 1 = folder
-    setCentralWidget(m_stack);
-    m_treeView->setFilter(TreeCompareModel::FilterMode::DifferencesOnly);
+    m_tabs = new QTabWidget(this);
+    m_tabs->setTabsClosable(true);
+    m_tabs->setMovable(true);
+    m_tabs->setDocumentMode(true);
+    setCentralWidget(m_tabs);
 
-    connect(m_diffView, &DiffView::currentDifferenceChanged, this,
-            [this](int idx, int total) {
-                if (m_mode != Mode::File) return;
-                if (total == 0) {
-                    m_diffCountLabel->setText("No differences");
-                } else {
-                    m_diffCountLabel->setText(QString("Diff %1 / %2").arg(idx + 1).arg(total));
-                }
-            });
+    connect(m_tabs, &QTabWidget::currentChanged, this, &MainWindow::onTabChanged);
+    connect(m_tabs, &QTabWidget::tabCloseRequested, this, &MainWindow::onTabCloseRequested);
 
-    connect(m_treeView, &TreeCompareView::fileActivated, this, &MainWindow::onFileActivatedFromTree);
-    connect(m_treeView, &TreeCompareView::comparisonUpdated, this, &MainWindow::onFolderComparisonUpdated);
-
-    setMode(Mode::File);
     readSettings();
+    updateForCurrentTab();
 }
 
 MainWindow::~MainWindow() = default;
@@ -98,19 +86,27 @@ void MainWindow::createActions() {
     connect(m_actQuit, &QAction::triggered, this, &QWidget::close);
 
     m_actNextDiff = new QAction(icon(QStyle::SP_ArrowDown), "&Next Difference", this);
-    m_actNextDiff->setShortcut(Qt::Key_F7);
+    m_actNextDiff->setShortcuts({Qt::Key_F7, QKeySequence(Qt::CTRL | Qt::Key_N)});
     m_actNextDiff->setEnabled(false);
     connect(m_actNextDiff, &QAction::triggered, this, &MainWindow::nextDifference);
 
     m_actPrevDiff = new QAction(icon(QStyle::SP_ArrowUp), "&Previous Difference", this);
-    m_actPrevDiff->setShortcut(QKeySequence(Qt::SHIFT | Qt::Key_F7));
+    m_actPrevDiff->setShortcuts({QKeySequence(Qt::SHIFT | Qt::Key_F7), QKeySequence(Qt::CTRL | Qt::Key_P)});
     m_actPrevDiff->setEnabled(false);
     connect(m_actPrevDiff, &QAction::triggered, this, &MainWindow::prevDifference);
 
-    m_actBack = new QAction(icon(QStyle::SP_ArrowBack), "&Back to Folder", this);
-    m_actBack->setShortcut(QKeySequence(Qt::ALT | Qt::Key_Left));
-    m_actBack->setEnabled(false);
-    connect(m_actBack, &QAction::triggered, this, &MainWindow::back);
+    m_actNextDiffFile = new QAction("Next Differing &File", this);
+    m_actNextDiffFile->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_M));
+    connect(m_actNextDiffFile, &QAction::triggered, this, &MainWindow::nextDifferentFile);
+    addAction(m_actNextDiffFile);  // not in toolbar; shortcut active globally
+
+    m_actCloseTab = new QAction("&Close Tab", this);
+    m_actCloseTab->setShortcut(QKeySequence::Close);  // Ctrl+W
+    connect(m_actCloseTab, &QAction::triggered, this, [this]() {
+        const int idx = m_tabs->currentIndex();
+        if (idx >= 0) onTabCloseRequested(idx);
+    });
+    addAction(m_actCloseTab);
 
     m_actAbout = new QAction("&About", this);
     connect(m_actAbout, &QAction::triggered, this, &MainWindow::showAbout);
@@ -128,14 +124,14 @@ void MainWindow::createMenus() {
     connect(m_recentFoldersMenu, &QMenu::aboutToShow, this, &MainWindow::rebuildRecentFoldersMenu);
     fileMenu->addSeparator();
     fileMenu->addAction(m_actRefresh);
+    fileMenu->addAction(m_actCloseTab);
     fileMenu->addSeparator();
     fileMenu->addAction(m_actQuit);
 
     auto* viewMenu = menuBar()->addMenu("&View");
     viewMenu->addAction(m_actNextDiff);
     viewMenu->addAction(m_actPrevDiff);
-    viewMenu->addSeparator();
-    viewMenu->addAction(m_actBack);
+    viewMenu->addAction(m_actNextDiffFile);
 
     auto* helpMenu = menuBar()->addMenu("&Help");
     helpMenu->addAction(m_actAbout);
@@ -148,7 +144,6 @@ void MainWindow::createToolBar() {
     tb->addAction(m_actOpenFolderPair);
     tb->addAction(m_actRefresh);
     tb->addSeparator();
-    tb->addAction(m_actBack);
     tb->addAction(m_actPrevDiff);
     tb->addAction(m_actNextDiff);
     tb->addSeparator();
@@ -158,12 +153,13 @@ void MainWindow::createToolBar() {
     m_filterCombo->addItem("Differences only", int(TreeCompareModel::FilterMode::DifferencesOnly));
     m_filterCombo->addItem("Left only", int(TreeCompareModel::FilterMode::LeftOnly));
     m_filterCombo->addItem("Right only", int(TreeCompareModel::FilterMode::RightOnly));
-    m_filterCombo->setCurrentIndex(1);  // DifferencesOnly default
+    m_filterCombo->setCurrentIndex(1);
     connect(m_filterCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
             [this](int) {
-                const auto mode = static_cast<TreeCompareModel::FilterMode>(
-                    m_filterCombo->currentData().toInt());
-                m_treeView->setFilter(mode);
+                if (auto* t = currentTreeView()) {
+                    t->setFilter(static_cast<TreeCompareModel::FilterMode>(
+                        m_filterCombo->currentData().toInt()));
+                }
             });
     m_filterComboAction = tb->addWidget(m_filterCombo);
 }
@@ -175,18 +171,6 @@ void MainWindow::createStatusBar() {
     statusBar()->addWidget(m_leftPathLabel, 1);
     statusBar()->addWidget(m_rightPathLabel, 1);
     statusBar()->addPermanentWidget(m_diffCountLabel);
-}
-
-void MainWindow::setMode(Mode m) {
-    m_mode = m;
-    m_stack->setCurrentIndex(m == Mode::File ? 0 : 1);
-
-    const bool isFile = (m == Mode::File);
-    m_actNextDiff->setVisible(isFile);
-    m_actPrevDiff->setVisible(isFile);
-    m_actBack->setVisible(isFile && !m_lastFolderPairLeft.isEmpty());
-    m_actBack->setEnabled(isFile && !m_lastFolderPairLeft.isEmpty());
-    if (m_filterComboAction) m_filterComboAction->setVisible(!isFile);
 }
 
 void MainWindow::openPair() {
@@ -201,8 +185,6 @@ void MainWindow::openLeft() {
     const QString p = QFileDialog::getOpenFileName(this, "Open Left File");
     if (p.isEmpty()) return;
     m_leftPath = p;
-    if (m_mode != Mode::File) setMode(Mode::File);
-    updatePathStatus();
     tryLoadPair();
 }
 
@@ -210,8 +192,6 @@ void MainWindow::openRight() {
     const QString p = QFileDialog::getOpenFileName(this, "Open Right File");
     if (p.isEmpty()) return;
     m_rightPath = p;
-    if (m_mode != Mode::File) setMode(Mode::File);
-    updatePathStatus();
     tryLoadPair();
 }
 
@@ -226,59 +206,103 @@ void MainWindow::openFolderPair() {
 void MainWindow::loadPair(const QString& leftPath, const QString& rightPath) {
     m_leftPath = leftPath;
     m_rightPath = rightPath;
-    setMode(Mode::File);
-    updatePathStatus();
-    tryLoadPair();
+
+    if (DiffView* existing = findDiffTabForPair(leftPath, rightPath)) {
+        m_tabs->setCurrentWidget(existing);
+        return;
+    }
+
+    DiffView* view = createDiffTab(leftPath, rightPath);
+    QString error;
+    if (!view->setFiles(leftPath, rightPath, &error)) {
+        QMessageBox::warning(this, "twain", error);
+        const int idx = m_tabs->indexOf(view);
+        if (idx >= 0) m_tabs->removeTab(idx);
+        view->deleteLater();
+        return;
+    }
+    m_tabs->setCurrentWidget(view);
+    updateDiffTabTitle(view);
+    rememberRecentPair("recent", leftPath, rightPath);
+    updateForCurrentTab();
 }
 
 void MainWindow::loadFolderPair(const QString& leftPath, const QString& rightPath) {
-    m_leftFolder = leftPath;
-    m_rightFolder = rightPath;
-    m_lastFolderPairLeft = leftPath;
-    m_lastFolderPairRight = rightPath;
-    setMode(Mode::Folder);
-    QString error;
-    if (!m_treeView->setFolders(leftPath, rightPath, &error)) {
-        QMessageBox::warning(this, "twain", error);
+    if (TreeCompareView* existing = findTreeTabForPair(leftPath, rightPath)) {
+        m_tabs->setCurrentWidget(existing);
         return;
     }
+
+    TreeCompareView* view = createTreeTab(leftPath, rightPath);
+    QString error;
+    if (!view->setFolders(leftPath, rightPath, &error)) {
+        QMessageBox::warning(this, "twain", error);
+        const int idx = m_tabs->indexOf(view);
+        if (idx >= 0) m_tabs->removeTab(idx);
+        view->deleteLater();
+        return;
+    }
+    m_tabs->setCurrentWidget(view);
+    updateTreeTabTitle(view);
     rememberRecentPair("recentFolders", leftPath, rightPath);
-    setWindowTitle(QString("twain — %1/ ⟷ %2/")
-                       .arg(QFileInfo(leftPath).fileName(),
-                            QFileInfo(rightPath).fileName()));
-    m_actRefresh->setEnabled(true);
-    updateFolderPathStatus();
+    updateForCurrentTab();
 }
 
 void MainWindow::refresh() {
-    if (m_mode == Mode::Folder) {
-        if (!m_leftFolder.isEmpty() && !m_rightFolder.isEmpty()) {
-            loadFolderPair(m_leftFolder, m_rightFolder);
+    if (auto* v = currentDiffView()) {
+        QString error;
+        if (!v->setFiles(v->leftPath(), v->rightPath(), &error)) {
+            QMessageBox::warning(this, "twain", error);
+            return;
         }
-    } else {
-        tryLoadPair();
+        updateForCurrentTab();
+    } else if (auto* t = currentTreeView()) {
+        const QString lp = t->property("leftPath").toString();
+        const QString rp = t->property("rightPath").toString();
+        QString error;
+        if (!t->setFolders(lp, rp, &error)) {
+            QMessageBox::warning(this, "twain", error);
+            return;
+        }
+        updateForCurrentTab();
     }
 }
 
 void MainWindow::nextDifference() {
-    if (m_diffView) m_diffView->nextDifference();
+    if (auto* v = currentDiffView()) v->nextDifference();
+    else if (auto* t = currentTreeView()) t->nextDifferentFile(/*open=*/false);
 }
 
 void MainWindow::prevDifference() {
-    if (m_diffView) m_diffView->prevDifference();
+    if (auto* v = currentDiffView()) v->prevDifference();
+    else if (auto* t = currentTreeView()) t->prevDifferentFile(/*open=*/false);
 }
 
-void MainWindow::back() {
-    if (!m_lastFolderPairLeft.isEmpty() && !m_lastFolderPairRight.isEmpty()) {
-        setMode(Mode::Folder);
-        updateFolderPathStatus();
-        onFolderComparisonUpdated();
+void MainWindow::nextDifferentFile() {
+    if (auto* t = currentTreeView()) {
+        t->nextDifferentFile(/*open=*/true);
+        return;
+    }
+    if (auto* dv = currentDiffView()) {
+        QObject* src = dv->property("sourceTree").value<QObject*>();
+        auto* t = qobject_cast<TreeCompareView*>(src);
+        if (!t) return;
+        const auto paths = t->nextDifferentFile(/*open=*/false);
+        if (paths.first.isEmpty() && paths.second.isEmpty()) return;
+        QString error;
+        if (!dv->setFiles(paths.first, paths.second, &error)) {
+            QMessageBox::warning(this, "twain", error);
+            return;
+        }
+        updateDiffTabTitle(dv);
+        rememberRecentPair("recent", paths.first, paths.second);
+        updateForCurrentTab();
     }
 }
 
 void MainWindow::showAbout() {
     QMessageBox::about(this, "About twain",
-                       "twain — a side-by-side diff tool.\nVersion 0.2.0");
+                       "twain — a side-by-side diff tool.\nVersion 0.3.0");
 }
 
 void MainWindow::updatePathStatus() {
@@ -290,76 +314,215 @@ void MainWindow::updatePathStatus() {
 }
 
 void MainWindow::updateFolderPathStatus() {
-    QFontMetrics fm(m_leftPathLabel->font());
-    m_leftPathLabel->setText(fm.elidedText(m_leftFolder, Qt::ElideMiddle, 600));
-    m_rightPathLabel->setText(fm.elidedText(m_rightFolder, Qt::ElideMiddle, 600));
-    m_leftPathLabel->setToolTip(m_leftFolder);
-    m_rightPathLabel->setToolTip(m_rightFolder);
+    // No-op stub kept for header compatibility — folder paths now come from the
+    // active tree tab and are rendered via updateForCurrentTab().
 }
 
 void MainWindow::tryLoadPair() {
-    if (m_leftPath.isEmpty() && m_rightPath.isEmpty()) return;
-    QString error;
-    if (!m_diffView->setFiles(m_leftPath, m_rightPath, &error)) {
-        QMessageBox::warning(this, "twain", error);
-        return;
+    if (m_leftPath.isEmpty() || m_rightPath.isEmpty()) return;
+    loadPair(m_leftPath, m_rightPath);
+}
+
+DiffView* MainWindow::currentDiffView() const {
+    return qobject_cast<DiffView*>(m_tabs->currentWidget());
+}
+
+TreeCompareView* MainWindow::currentTreeView() const {
+    return qobject_cast<TreeCompareView*>(m_tabs->currentWidget());
+}
+
+DiffView* MainWindow::findDiffTabForPair(const QString& left, const QString& right) const {
+    for (int i = 0; i < m_tabs->count(); ++i) {
+        auto* v = qobject_cast<DiffView*>(m_tabs->widget(i));
+        if (v && v->leftPath() == left && v->rightPath() == right) return v;
     }
-    rememberRecentPair("recent", m_leftPath, m_rightPath);
-    setWindowTitle(QString("twain — %1 ⟷ %2")
-                       .arg(QFileInfo(m_leftPath).fileName(),
-                            QFileInfo(m_rightPath).fileName()));
-    m_actRefresh->setEnabled(true);
-    const int n = m_diffView->differenceCount();
-    if (n == 0) m_diffCountLabel->setText("No differences");
-    m_actNextDiff->setEnabled(n > 0);
-    m_actPrevDiff->setEnabled(n > 0);
+    return nullptr;
+}
+
+TreeCompareView* MainWindow::findTreeTabForPair(const QString& left, const QString& right) const {
+    for (int i = 0; i < m_tabs->count(); ++i) {
+        auto* t = qobject_cast<TreeCompareView*>(m_tabs->widget(i));
+        if (!t) continue;
+        if (t->property("leftPath").toString() == left &&
+            t->property("rightPath").toString() == right) return t;
+    }
+    return nullptr;
+}
+
+DiffView* MainWindow::createDiffTab(const QString& left, const QString& right) {
+    auto* view = new DiffView(this);
+    connect(view, &DiffView::currentDifferenceChanged, this,
+            [this, view](int, int) {
+                if (currentDiffView() == view) updateForCurrentTab();
+            });
+    const QString l = QFileInfo(left).fileName();
+    const QString r = QFileInfo(right).fileName();
+    const QString title = (l == r && !l.isEmpty()) ? l : QString("%1 ⟷ %2").arg(l, r);
+    const int idx = m_tabs->addTab(view, title.isEmpty() ? "untitled" : title);
+    m_tabs->setTabToolTip(idx, left + "\n" + right);
+    return view;
+}
+
+TreeCompareView* MainWindow::createTreeTab(const QString& left, const QString& right) {
+    auto* view = new TreeCompareView(this);
+    view->setProperty("leftPath", left);
+    view->setProperty("rightPath", right);
+    connect(view, &TreeCompareView::fileActivated, this, &MainWindow::onFileActivatedFromTree);
+    connect(view, &TreeCompareView::comparisonUpdated, this,
+            [this, view]() {
+                if (currentTreeView() == view) updateForCurrentTab();
+            });
+    QSettings s;
+    const auto filter = static_cast<TreeCompareModel::FilterMode>(
+        s.value("tree/filter", int(TreeCompareModel::FilterMode::DifferencesOnly)).toInt());
+    view->setFilter(filter);
+    if (s.contains("tree/splitter")) view->restoreSplitterState(s.value("tree/splitter").toByteArray());
+    if (s.contains("tree/header")) view->restoreHeaderState(s.value("tree/header").toByteArray());
+
+    const QString l = QFileInfo(left).fileName();
+    const QString r = QFileInfo(right).fileName();
+    const QString title = (l == r && !l.isEmpty()) ? l + "/" : QString("%1/ ⟷ %2/").arg(l, r);
+    const int idx = m_tabs->addTab(view, title);
+    m_tabs->setTabToolTip(idx, left + "\n" + right);
+    return view;
+}
+
+void MainWindow::updateDiffTabTitle(DiffView* view) {
+    const int idx = m_tabs->indexOf(view);
+    if (idx < 0) return;
+    const QString l = QFileInfo(view->leftPath()).fileName();
+    const QString r = QFileInfo(view->rightPath()).fileName();
+    const QString title = (l == r && !l.isEmpty()) ? l : QString("%1 ⟷ %2").arg(l, r);
+    m_tabs->setTabText(idx, title.isEmpty() ? "untitled" : title);
+    m_tabs->setTabToolTip(idx, view->leftPath() + "\n" + view->rightPath());
+}
+
+void MainWindow::updateTreeTabTitle(TreeCompareView* view) {
+    const int idx = m_tabs->indexOf(view);
+    if (idx < 0) return;
+    const QString lp = view->property("leftPath").toString();
+    const QString rp = view->property("rightPath").toString();
+    const QString l = QFileInfo(lp).fileName();
+    const QString r = QFileInfo(rp).fileName();
+    const QString title = (l == r && !l.isEmpty()) ? l + "/" : QString("%1/ ⟷ %2/").arg(l, r);
+    m_tabs->setTabText(idx, title);
+    m_tabs->setTabToolTip(idx, lp + "\n" + rp);
+}
+
+void MainWindow::updateForCurrentTab() {
+    DiffView* dv = currentDiffView();
+    TreeCompareView* tv = currentTreeView();
+
+    const bool isDiff = (dv != nullptr);
+    const bool isTree = (tv != nullptr);
+
+    m_actNextDiff->setVisible(isDiff || isTree);
+    m_actPrevDiff->setVisible(isDiff || isTree);
+    m_filterComboAction->setVisible(isTree);
+    m_actRefresh->setEnabled(isDiff || isTree);
+
+    if (isDiff) {
+        m_leftPath = dv->leftPath();
+        m_rightPath = dv->rightPath();
+        updatePathStatus();
+        const int n = dv->differenceCount();
+        const int cur = dv->currentDifference();
+        if (n == 0) {
+            m_diffCountLabel->setText("No differences");
+        } else if (cur < 0) {
+            m_diffCountLabel->setText(QString("%1 differences").arg(n));
+        } else {
+            m_diffCountLabel->setText(QString("Diff %1 / %2").arg(cur + 1).arg(n));
+        }
+        m_actNextDiff->setEnabled(n > 0);
+        m_actPrevDiff->setEnabled(n > 0);
+        m_actNextDiffFile->setEnabled(true);
+        setWindowTitle(QString("twain — %1 ⟷ %2")
+                           .arg(QFileInfo(dv->leftPath()).fileName(),
+                                QFileInfo(dv->rightPath()).fileName()));
+    } else if (isTree) {
+        const QString lp = tv->property("leftPath").toString();
+        const QString rp = tv->property("rightPath").toString();
+        QFontMetrics fm(m_leftPathLabel->font());
+        m_leftPathLabel->setText(fm.elidedText(lp, Qt::ElideMiddle, 600));
+        m_rightPathLabel->setText(fm.elidedText(rp, Qt::ElideMiddle, 600));
+        m_leftPathLabel->setToolTip(lp);
+        m_rightPathLabel->setToolTip(rp);
+        const int s = tv->sameCount();
+        const int d = tv->differentCount();
+        const int l = tv->leftOnlyCount();
+        const int r = tv->rightOnlyCount();
+        m_diffCountLabel->setText(QString("%1 same · %2 different · %3← · %4→").arg(s).arg(d).arg(l).arg(r));
+        m_actNextDiff->setEnabled(true);
+        m_actPrevDiff->setEnabled(true);
+        m_actNextDiffFile->setEnabled(true);
+        for (int i = 0; i < m_filterCombo->count(); ++i) {
+            if (m_filterCombo->itemData(i).toInt() == int(tv->filter())) {
+                const QSignalBlocker blocker(m_filterCombo);
+                m_filterCombo->setCurrentIndex(i);
+                break;
+            }
+        }
+        setWindowTitle(QString("twain — %1/ ⟷ %2/")
+                           .arg(QFileInfo(lp).fileName(), QFileInfo(rp).fileName()));
+    } else {
+        m_leftPathLabel->clear();
+        m_rightPathLabel->clear();
+        m_diffCountLabel->clear();
+        m_actNextDiff->setEnabled(false);
+        m_actPrevDiff->setEnabled(false);
+        m_actNextDiffFile->setEnabled(false);
+        setWindowTitle("twain");
+    }
+}
+
+void MainWindow::onTabChanged(int /*index*/) {
+    updateForCurrentTab();
+}
+
+void MainWindow::onTabCloseRequested(int index) {
+    QWidget* w = m_tabs->widget(index);
+    m_tabs->removeTab(index);
+    if (w) w->deleteLater();
+    updateForCurrentTab();
 }
 
 void MainWindow::onFileActivatedFromTree(const QString& leftPath, const QString& rightPath) {
-    m_lastFolderPairLeft = m_leftFolder;
-    m_lastFolderPairRight = m_rightFolder;
+    auto* source = qobject_cast<TreeCompareView*>(sender());
     loadPair(leftPath, rightPath);
+    if (auto* dv = currentDiffView()) {
+        dv->setProperty("sourceTree", QVariant::fromValue<QObject*>(source));
+    }
 }
 
 void MainWindow::onFolderComparisonUpdated() {
-    if (m_mode != Mode::Folder) return;
-    const int s = m_treeView->sameCount();
-    const int d = m_treeView->differentCount();
-    const int l = m_treeView->leftOnlyCount();
-    const int r = m_treeView->rightOnlyCount();
-    m_diffCountLabel->setText(QString("%1 same · %2 different · %3← · %4→").arg(s).arg(d).arg(l).arg(r));
+    updateForCurrentTab();
 }
 
 void MainWindow::readSettings() {
     QSettings s;
     if (s.contains("geometry")) restoreGeometry(s.value("geometry").toByteArray());
     if (s.contains("windowState")) restoreState(s.value("windowState").toByteArray());
-    if (s.contains("splitter")) m_diffView->restoreSplitterState(s.value("splitter").toByteArray());
-    if (s.contains("tree/splitter")) m_treeView->restoreSplitterState(s.value("tree/splitter").toByteArray());
-    if (s.contains("tree/header")) m_treeView->restoreHeaderState(s.value("tree/header").toByteArray());
 
     const int filterInt = s.value("tree/filter", int(TreeCompareModel::FilterMode::DifferencesOnly)).toInt();
-    const auto filter = static_cast<TreeCompareModel::FilterMode>(filterInt);
-    m_treeView->setFilter(filter);
     for (int i = 0; i < m_filterCombo->count(); ++i) {
         if (m_filterCombo->itemData(i).toInt() == filterInt) {
+            const QSignalBlocker blocker(m_filterCombo);
             m_filterCombo->setCurrentIndex(i);
             break;
         }
     }
-
-    if (s.value("lastMode", 0).toInt() == 1) setMode(Mode::Folder);
 }
 
 void MainWindow::writeSettings() {
     QSettings s;
     s.setValue("geometry", saveGeometry());
     s.setValue("windowState", saveState());
-    s.setValue("splitter", m_diffView->saveSplitterState());
-    s.setValue("tree/splitter", m_treeView->saveSplitterState());
-    s.setValue("tree/header", m_treeView->saveHeaderState());
-    s.setValue("tree/filter", int(m_treeView->filter()));
-    s.setValue("lastMode", m_stack->currentIndex());
+    if (auto* tv = currentTreeView()) {
+        s.setValue("tree/splitter", tv->saveSplitterState());
+        s.setValue("tree/header", tv->saveHeaderState());
+        s.setValue("tree/filter", int(tv->filter()));
+    }
 }
 
 void MainWindow::rememberRecentPair(const QString& prefix, const QString& left, const QString& right) {

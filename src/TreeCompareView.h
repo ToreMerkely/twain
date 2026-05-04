@@ -5,6 +5,8 @@
 #include <QString>
 #include <QWidget>
 
+#include <QPair>
+
 #include "TreeCompare.h"
 #include "TreeCompareModel.h"
 
@@ -20,6 +22,9 @@ public:
 
     void setFilter(TreeCompareModel::FilterMode mode);
     TreeCompareModel::FilterMode filter() const;
+
+    QPair<QString, QString> nextDifferentFile(bool open = true);
+    QPair<QString, QString> prevDifferentFile(bool open = true);
 
     int sameCount() const { return m_sameCount; }
     int differentCount() const { return m_differentCount; }

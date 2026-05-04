@@ -167,6 +167,8 @@ bool DiffView::setFiles(const QString& leftPath, const QString& rightPath, QStri
     QVector<DiffRow> leftRows, rightRows;
     buildAlignedRows(leftLines, rightLines, hunks, leftRows, rightRows, m_diffRows);
 
+    m_leftPath = leftPath;
+    m_rightPath = rightPath;
     m_left->setLanguageFromPath(leftPath.isEmpty() ? rightPath : leftPath);
     m_right->setLanguageFromPath(rightPath.isEmpty() ? leftPath : rightPath);
     m_left->setRows(leftRows);
@@ -182,14 +184,14 @@ bool DiffView::setFiles(const QString& leftPath, const QString& rightPath, QStri
 
 void DiffView::nextDifference() {
     if (m_diffRows.isEmpty()) return;
-    int next = (m_currentDiff + 1) % m_diffRows.size();
-    goToDiff(next);
+    if (m_currentDiff + 1 >= m_diffRows.size()) return;
+    goToDiff(m_currentDiff + 1);
 }
 
 void DiffView::prevDifference() {
     if (m_diffRows.isEmpty()) return;
-    int prev = m_currentDiff <= 0 ? m_diffRows.size() - 1 : m_currentDiff - 1;
-    goToDiff(prev);
+    if (m_currentDiff <= 0) return;
+    goToDiff(m_currentDiff - 1);
 }
 
 void DiffView::goToDiff(int index) {
