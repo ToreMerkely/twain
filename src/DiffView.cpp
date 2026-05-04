@@ -132,25 +132,32 @@ static void buildAlignedRows(const QStringList& left, const QStringList& right,
 }
 
 bool DiffView::setFiles(const QString& leftPath, const QString& rightPath, QString* error) {
-    bool okL = false, okR = false;
-    QString errL, errR;
-    QStringList leftLines = readFileLines(leftPath, &okL, &errL);
-    QStringList rightLines = readFileLines(rightPath, &okR, &errR);
-    if (!okL) {
-        if (error) *error = errL;
-        return false;
+    QStringList leftLines, rightLines;
+    if (!leftPath.isEmpty()) {
+        bool okL = false;
+        QString errL;
+        leftLines = readFileLines(leftPath, &okL, &errL);
+        if (!okL) {
+            if (error) *error = errL;
+            return false;
+        }
     }
-    if (!okR) {
-        if (error) *error = errR;
-        return false;
+    if (!rightPath.isEmpty()) {
+        bool okR = false;
+        QString errR;
+        rightLines = readFileLines(rightPath, &okR, &errR);
+        if (!okR) {
+            if (error) *error = errR;
+            return false;
+        }
     }
 
     const auto hunks = Diff::compute(leftLines, rightLines);
     QVector<DiffRow> leftRows, rightRows;
     buildAlignedRows(leftLines, rightLines, hunks, leftRows, rightRows, m_diffRows);
 
-    m_left->setLanguageFromPath(leftPath);
-    m_right->setLanguageFromPath(rightPath);
+    m_left->setLanguageFromPath(leftPath.isEmpty() ? rightPath : leftPath);
+    m_right->setLanguageFromPath(rightPath.isEmpty() ? leftPath : rightPath);
     m_left->setRows(leftRows);
     m_right->setRows(rightRows);
     m_currentDiff = -1;

@@ -17,6 +17,9 @@ add_executable(twain
     src/DiffPane.cpp
     src/Diff.cpp
     src/HighlighterFactory.cpp
+    src/TreeCompareView.cpp
+    src/TreeCompare.cpp
+    src/TreeCompareModel.cpp
     src/CppHighlighter.cpp
     src/PythonHighlighter.cpp
     src/JsonHighlighter.cpp
