@@ -20,8 +20,11 @@ struct DiffRow {
 class DiffPane : public QPlainTextEdit {
     Q_OBJECT
 public:
+    enum class Side { Left, Right };
+
     explicit DiffPane(QWidget* parent = nullptr);
 
+    void setSide(Side s);
     void setRows(const QVector<DiffRow>& rows);
     void setLanguageFromPath(const QString& path);
 
@@ -41,4 +44,5 @@ private:
     QWidget* m_lineNumberArea;
     QVector<DiffRow> m_rows;
     QSyntaxHighlighter* m_highlighter = nullptr;
+    Side m_side = Side::Left;
 };

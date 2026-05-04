@@ -16,6 +16,8 @@ DiffView::DiffView(QWidget* parent) : QWidget(parent) {
     m_splitter = new QSplitter(Qt::Horizontal, this);
     m_left = new DiffPane(m_splitter);
     m_right = new DiffPane(m_splitter);
+    m_left->setSide(DiffPane::Side::Left);
+    m_right->setSide(DiffPane::Side::Right);
     m_splitter->addWidget(m_left);
     m_splitter->addWidget(m_right);
     m_splitter->setSizes({1, 1});
@@ -174,11 +176,9 @@ bool DiffView::setFiles(const QString& leftPath, const QString& rightPath, QStri
     m_left->setRows(leftRows);
     m_right->setRows(rightRows);
     m_currentDiff = -1;
-    if (!m_diffRows.isEmpty()) {
-        goToDiff(0);
-    } else {
-        emit currentDifferenceChanged(-1, 0);
-    }
+    m_left->verticalScrollBar()->setValue(0);
+    m_right->verticalScrollBar()->setValue(0);
+    emit currentDifferenceChanged(-1, m_diffRows.size());
     return true;
 }
 
@@ -202,9 +202,12 @@ void DiffView::goToDiff(int index) {
     QTextCursor cursor(m_left->document()->findBlockByNumber(row));
     m_left->setTextCursor(cursor);
     m_left->centerCursor();
-    // right pane follows via scroll sync, but ensure cursor matches too
-    QTextCursor cursorR(m_right->document()->findBlockByNumber(row));
-    m_right->setTextCursor(cursorR);
+    // Sync right pane explicitly — centerCursor doesn't always fire
+    // valueChanged on the scrollbar, and setting right's text cursor
+    // separately can land a row off.
+    m_syncing = true;
+    m_right->verticalScrollBar()->setValue(m_left->verticalScrollBar()->value());
+    m_syncing = false;
 
     emit currentDifferenceChanged(m_currentDiff, m_diffRows.size());
 }

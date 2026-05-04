@@ -38,6 +38,10 @@ QColor colorFor(Diff::Op op, bool filler) {
 }
 
 QColor segmentColor() { return QColor(255, 150, 150); }
+QColor arrowColor() { return QColor(245, 195, 0); }
+constexpr int kArrowWidth = 10;
+constexpr int kArrowHeight = 10;
+constexpr int kArrowPad = 4;
 
 }  // namespace
 
@@ -55,6 +59,12 @@ DiffPane::DiffPane(QWidget* parent) : QPlainTextEdit(parent) {
     connect(this, &QPlainTextEdit::updateRequest, this, &DiffPane::updateLineNumberArea);
 
     updateLineNumberAreaWidth();
+}
+
+void DiffPane::setSide(Side s) {
+    m_side = s;
+    updateLineNumberAreaWidth();
+    m_lineNumberArea->update();
 }
 
 void DiffPane::setLanguageFromPath(const QString& path) {
@@ -118,7 +128,7 @@ int DiffPane::lineNumberAreaWidth() const {
         ++digits;
     }
     digits = qMax(digits, 3);
-    return 8 + fontMetrics().horizontalAdvance('9') * digits;
+    return 8 + fontMetrics().horizontalAdvance('9') * digits + kArrowWidth + kArrowPad;
 }
 
 void DiffPane::updateLineNumberAreaWidth() {
@@ -149,20 +159,43 @@ void DiffPane::lineNumberAreaPaintEvent(QPaintEvent* event) {
     int top = qRound(blockBoundingGeometry(block).translated(contentOffset()).top());
     int bottom = top + qRound(blockBoundingRect(block).height());
 
-    painter.setPen(palette().color(QPalette::WindowText).lighter(150));
+    const QPen numberPen(palette().color(QPalette::WindowText).lighter(150));
+    const int numWidth = m_lineNumberArea->width() - kArrowWidth - kArrowPad;
 
     while (block.isValid() && top <= event->rect().bottom()) {
         if (block.isVisible() && bottom >= event->rect().top()) {
             QString num;
-            if (blockNumber < m_rows.size() && m_rows[blockNumber].sourceLine >= 0) {
-                num = QString::number(m_rows[blockNumber].sourceLine + 1);
-            } else if (blockNumber < m_rows.size()) {
-                num = QString();  // filler
+            bool drawArrow = false;
+            if (blockNumber < m_rows.size()) {
+                const auto& r = m_rows[blockNumber];
+                if (r.sourceLine >= 0) num = QString::number(r.sourceLine + 1);
+                drawArrow = (r.kind != Diff::Op::Equal) && !r.filler;
             } else {
                 num = QString::number(blockNumber + 1);
             }
-            painter.drawText(0, top, m_lineNumberArea->width() - 4,
-                             fontMetrics().height(), Qt::AlignRight, num);
+            painter.setPen(numberPen);
+            painter.drawText(0, top, numWidth - 4, fontMetrics().height(),
+                             Qt::AlignRight, num);
+            if (drawArrow) {
+                const int rowHeight = qRound(blockBoundingRect(block).height());
+                const int ax = m_lineNumberArea->width() - kArrowWidth - 1;
+                const int ay = top + (rowHeight - kArrowHeight) / 2;
+                QPolygon tri;
+                if (m_side == Side::Left) {
+                    // Right-pointing triangle: would copy left -> right
+                    tri << QPoint(ax, ay)
+                        << QPoint(ax + kArrowWidth, ay + kArrowHeight / 2)
+                        << QPoint(ax, ay + kArrowHeight);
+                } else {
+                    // Left-pointing triangle: would copy right -> left
+                    tri << QPoint(ax + kArrowWidth, ay)
+                        << QPoint(ax, ay + kArrowHeight / 2)
+                        << QPoint(ax + kArrowWidth, ay + kArrowHeight);
+                }
+                painter.setBrush(arrowColor());
+                painter.setPen(Qt::NoPen);
+                painter.drawPolygon(tri);
+            }
         }
         block = block.next();
         top = bottom;
