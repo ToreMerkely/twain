@@ -1,0 +1,43 @@
+#pragma once
+
+#include <QPlainTextEdit>
+#include <QVector>
+
+#include "Diff.h"
+
+class QPaintEvent;
+class QResizeEvent;
+class QSyntaxHighlighter;
+
+struct DiffRow {
+    int sourceLine;   // -1 for filler
+    QString text;
+    Diff::Op kind;    // Equal, Delete, Insert (filler rows use kind of the surrounding hunk)
+    bool filler;
+};
+
+class DiffPane : public QPlainTextEdit {
+    Q_OBJECT
+public:
+    explicit DiffPane(QWidget* parent = nullptr);
+
+    void setRows(const QVector<DiffRow>& rows);
+    void setLanguageFromPath(const QString& path);
+
+    void lineNumberAreaPaintEvent(QPaintEvent* event);
+    int lineNumberAreaWidth() const;
+
+protected:
+    void resizeEvent(QResizeEvent* event) override;
+
+private slots:
+    void updateLineNumberAreaWidth();
+    void updateLineNumberArea(const QRect& rect, int dy);
+
+private:
+    void applyRowBackgrounds();
+
+    QWidget* m_lineNumberArea;
+    QVector<DiffRow> m_rows;
+    QSyntaxHighlighter* m_highlighter = nullptr;
+};
