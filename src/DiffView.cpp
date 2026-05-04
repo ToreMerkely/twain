@@ -76,8 +76,22 @@ static QStringList readFileLines(const QString& path, bool* ok, QString* err) {
     return lines;
 }
 
+static void filterBlanks(const QStringList& orig, QStringList* out, QVector<int>* origIdx) {
+    out->clear();
+    origIdx->clear();
+    out->reserve(orig.size());
+    origIdx->reserve(orig.size());
+    for (int i = 0; i < orig.size(); ++i) {
+        if (!orig[i].trimmed().isEmpty()) {
+            out->append(orig[i]);
+            origIdx->append(i);
+        }
+    }
+}
+
 static void buildAlignedRows(const QStringList& left, const QStringList& right,
-                             const QVector<Diff::Hunk>& hunks,
+                             const QVector<int>& leftMap, const QVector<int>& rightMap,
+                             const QVector<Diff::Hunk>& hunks, Diff::Options diffOpts,
                              QVector<DiffRow>& leftRows, QVector<DiffRow>& rightRows,
                              QVector<int>& diffRowStarts) {
     leftRows.clear();
@@ -89,8 +103,10 @@ static void buildAlignedRows(const QStringList& left, const QStringList& right,
         const auto& h = hunks[i];
         if (h.op == Diff::Op::Equal) {
             for (int k = 0; k < h.leftCount; ++k) {
-                leftRows.append({h.leftStart + k, left[h.leftStart + k], Diff::Op::Equal, false});
-                rightRows.append({h.rightStart + k, right[h.rightStart + k], Diff::Op::Equal, false});
+                const int li = leftMap[h.leftStart + k];
+                const int ri = rightMap[h.rightStart + k];
+                leftRows.append({li, left[li], Diff::Op::Equal, false, {}});
+                rightRows.append({ri, right[ri], Diff::Op::Equal, false, {}});
             }
             ++i;
             continue;
@@ -124,17 +140,19 @@ static void buildAlignedRows(const QStringList& left, const QStringList& right,
 
             DiffRow lr, rr;
             if (leftReal) {
-                lr = {del.leftStart + k, left[del.leftStart + k], Diff::Op::Delete, false, {}};
+                const int li = leftMap[del.leftStart + k];
+                lr = {li, left[li], Diff::Op::Delete, false, {}};
             } else {
                 lr = {-1, QString(), Diff::Op::Delete, true, {}};
             }
             if (rightReal) {
-                rr = {ins.rightStart + k, right[ins.rightStart + k], Diff::Op::Insert, false, {}};
+                const int ri = rightMap[ins.rightStart + k];
+                rr = {ri, right[ri], Diff::Op::Insert, false, {}};
             } else {
                 rr = {-1, QString(), Diff::Op::Insert, true, {}};
             }
             if (leftReal && rightReal) {
-                const auto ld = Diff::lineDiff(lr.text, rr.text);
+                const auto ld = Diff::lineDiff(lr.text, rr.text, diffOpts);
                 lr.segments = ld.left;
                 rr.segments = ld.right;
             }
@@ -165,9 +183,27 @@ bool DiffView::setFiles(const QString& leftPath, const QString& rightPath, QStri
         }
     }
 
-    const auto hunks = Diff::compute(leftLines, rightLines);
+    Diff::Options diffOpts;
+    diffOpts.ignoreCase = m_options.ignoreCase;
+    diffOpts.ignoreWhitespace = m_options.ignoreWhitespace;
+
+    QStringList compareLeft = leftLines;
+    QStringList compareRight = rightLines;
+    QVector<int> leftMap, rightMap;
+    if (m_options.ignoreBlankLines) {
+        filterBlanks(leftLines, &compareLeft, &leftMap);
+        filterBlanks(rightLines, &compareRight, &rightMap);
+    } else {
+        leftMap.reserve(leftLines.size());
+        rightMap.reserve(rightLines.size());
+        for (int i = 0; i < leftLines.size(); ++i) leftMap.append(i);
+        for (int i = 0; i < rightLines.size(); ++i) rightMap.append(i);
+    }
+
+    const auto hunks = Diff::compute(compareLeft, compareRight, diffOpts);
     QVector<DiffRow> leftRows, rightRows;
-    buildAlignedRows(leftLines, rightLines, hunks, leftRows, rightRows, m_diffRows);
+    buildAlignedRows(leftLines, rightLines, leftMap, rightMap, hunks, diffOpts,
+                     leftRows, rightRows, m_diffRows);
 
     m_leftPath = leftPath;
     m_rightPath = rightPath;
@@ -175,11 +211,19 @@ bool DiffView::setFiles(const QString& leftPath, const QString& rightPath, QStri
     m_right->setLanguageFromPath(rightPath.isEmpty() ? leftPath : rightPath);
     m_left->setRows(leftRows);
     m_right->setRows(rightRows);
+
     m_currentDiff = -1;
     m_left->verticalScrollBar()->setValue(0);
     m_right->verticalScrollBar()->setValue(0);
     emit currentDifferenceChanged(-1, m_diffRows.size());
     return true;
+}
+
+void DiffView::setOptions(Options opts) {
+    m_options = opts;
+    if (!m_leftPath.isEmpty() || !m_rightPath.isEmpty()) {
+        setFiles(m_leftPath, m_rightPath);
+    }
 }
 
 void DiffView::nextDifference() {

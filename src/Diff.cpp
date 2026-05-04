@@ -10,6 +10,21 @@ struct Edit {
     int rightIndex;
 };
 
+QString normalize(const QString& s, Options opts) {
+    QString r = s;
+    if (opts.ignoreWhitespace) r = r.simplified();
+    if (opts.ignoreCase) r = r.toCaseFolded();
+    return r;
+}
+
+QStringList normalizeAll(const QStringList& lines, Options opts) {
+    if (!opts.ignoreCase && !opts.ignoreWhitespace) return lines;
+    QStringList out;
+    out.reserve(lines.size());
+    for (const auto& s : lines) out.append(normalize(s, opts));
+    return out;
+}
+
 QVector<Edit> myersEditScript(const QStringList& a, const QStringList& b) {
     const int n = a.size();
     const int m = b.size();
@@ -87,8 +102,10 @@ QVector<Edit> myersEditScript(const QStringList& a, const QStringList& b) {
 
 }  // namespace
 
-QVector<Hunk> compute(const QStringList& left, const QStringList& right) {
-    QVector<Edit> edits = myersEditScript(left, right);
+QVector<Hunk> compute(const QStringList& left, const QStringList& right, Options opts) {
+    const QStringList normLeft = normalizeAll(left, opts);
+    const QStringList normRight = normalizeAll(right, opts);
+    QVector<Edit> edits = myersEditScript(normLeft, normRight);
 
     QVector<Hunk> hunks;
     int i = 0;
@@ -154,7 +171,7 @@ QVector<Token> tokenize(const QString& line) {
 
 }  // namespace
 
-LineDiff lineDiff(const QString& left, const QString& right) {
+LineDiff lineDiff(const QString& left, const QString& right, Options opts) {
     const auto tl = tokenize(left);
     const auto tr = tokenize(right);
 
@@ -164,7 +181,7 @@ LineDiff lineDiff(const QString& left, const QString& right) {
     for (const auto& t : tl) ls.append(t.text);
     for (const auto& t : tr) rs.append(t.text);
 
-    const auto hunks = compute(ls, rs);
+    const auto hunks = compute(ls, rs, opts);
 
     LineDiff out;
     for (const auto& h : hunks) {

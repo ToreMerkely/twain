@@ -108,6 +108,16 @@ void MainWindow::createActions() {
     });
     addAction(m_actCloseTab);
 
+    auto makeToggle = [this](const QString& label) {
+        auto* a = new QAction(label, this);
+        a->setCheckable(true);
+        connect(a, &QAction::toggled, this, [this](bool) { applyDiffOptionsToAllTabs(); });
+        return a;
+    };
+    m_actIgnoreCase = makeToggle("Ignore &Case");
+    m_actIgnoreWhitespace = makeToggle("Ignore &Whitespace");
+    m_actIgnoreBlankLines = makeToggle("Ignore &Blank Lines");
+
     m_actAbout = new QAction("&About", this);
     connect(m_actAbout, &QAction::triggered, this, &MainWindow::showAbout);
 }
@@ -132,6 +142,10 @@ void MainWindow::createMenus() {
     viewMenu->addAction(m_actNextDiff);
     viewMenu->addAction(m_actPrevDiff);
     viewMenu->addAction(m_actNextDiffFile);
+    viewMenu->addSeparator();
+    viewMenu->addAction(m_actIgnoreCase);
+    viewMenu->addAction(m_actIgnoreWhitespace);
+    viewMenu->addAction(m_actIgnoreBlankLines);
 
     auto* helpMenu = menuBar()->addMenu("&Help");
     helpMenu->addAction(m_actAbout);
@@ -351,6 +365,11 @@ TreeCompareView* MainWindow::findTreeTabForPair(const QString& left, const QStri
 
 DiffView* MainWindow::createDiffTab(const QString& left, const QString& right) {
     auto* view = new DiffView(this);
+    DiffView::Options opts;
+    opts.ignoreCase = m_actIgnoreCase->isChecked();
+    opts.ignoreWhitespace = m_actIgnoreWhitespace->isChecked();
+    opts.ignoreBlankLines = m_actIgnoreBlankLines->isChecked();
+    view->setOptions(opts);
     connect(view, &DiffView::currentDifferenceChanged, this,
             [this, view](int, int) {
                 if (currentDiffView() == view) updateForCurrentTab();
@@ -487,6 +506,19 @@ void MainWindow::onTabCloseRequested(int index) {
     updateForCurrentTab();
 }
 
+void MainWindow::applyDiffOptionsToAllTabs() {
+    DiffView::Options opts;
+    opts.ignoreCase = m_actIgnoreCase->isChecked();
+    opts.ignoreWhitespace = m_actIgnoreWhitespace->isChecked();
+    opts.ignoreBlankLines = m_actIgnoreBlankLines->isChecked();
+    for (int i = 0; i < m_tabs->count(); ++i) {
+        if (auto* dv = qobject_cast<DiffView*>(m_tabs->widget(i))) {
+            dv->setOptions(opts);
+        }
+    }
+    updateForCurrentTab();
+}
+
 void MainWindow::onFileActivatedFromTree(const QString& leftPath, const QString& rightPath) {
     auto* source = qobject_cast<TreeCompareView*>(sender());
     loadPair(leftPath, rightPath);
@@ -512,6 +544,15 @@ void MainWindow::readSettings() {
             break;
         }
     }
+
+    {
+        const QSignalBlocker b1(m_actIgnoreCase);
+        const QSignalBlocker b2(m_actIgnoreWhitespace);
+        const QSignalBlocker b3(m_actIgnoreBlankLines);
+        m_actIgnoreCase->setChecked(s.value("diff/ignoreCase", false).toBool());
+        m_actIgnoreWhitespace->setChecked(s.value("diff/ignoreWhitespace", false).toBool());
+        m_actIgnoreBlankLines->setChecked(s.value("diff/ignoreBlankLines", false).toBool());
+    }
 }
 
 void MainWindow::writeSettings() {
@@ -523,6 +564,9 @@ void MainWindow::writeSettings() {
         s.setValue("tree/header", tv->saveHeaderState());
         s.setValue("tree/filter", int(tv->filter()));
     }
+    s.setValue("diff/ignoreCase", m_actIgnoreCase->isChecked());
+    s.setValue("diff/ignoreWhitespace", m_actIgnoreWhitespace->isChecked());
+    s.setValue("diff/ignoreBlankLines", m_actIgnoreBlankLines->isChecked());
 }
 
 void MainWindow::rememberRecentPair(const QString& prefix, const QString& left, const QString& right) {

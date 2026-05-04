@@ -13,7 +13,15 @@ class DiffView : public QWidget {
 public:
     explicit DiffView(QWidget* parent = nullptr);
 
+    struct Options {
+        bool ignoreCase = false;
+        bool ignoreWhitespace = false;
+        bool ignoreBlankLines = false;
+    };
+
     bool setFiles(const QString& leftPath, const QString& rightPath, QString* error = nullptr);
+    void setOptions(Options opts);
+    Options options() const { return m_options; }
     int differenceCount() const { return m_diffRows.size(); }
     int currentDifference() const { return m_currentDiff; }
     QString leftPath() const { return m_leftPath; }
@@ -38,6 +46,7 @@ private:
     int m_currentDiff = -1;
     QString m_leftPath;
     QString m_rightPath;
+    Options m_options;
 
     void syncScroll(DiffPane* source, DiffPane* target, int value);
     void goToDiff(int index);

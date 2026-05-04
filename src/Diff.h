@@ -15,7 +15,12 @@ struct Hunk {
     int rightCount;
 };
 
-QVector<Hunk> compute(const QStringList& left, const QStringList& right);
+struct Options {
+    bool ignoreCase = false;
+    bool ignoreWhitespace = false;  // collapses runs and strips leading/trailing
+};
+
+QVector<Hunk> compute(const QStringList& left, const QStringList& right, Options opts = {});
 
 struct LineSegment {
     int start;    // character offset within the line
@@ -28,6 +33,6 @@ struct LineDiff {
     QVector<LineSegment> right;
 };
 
-LineDiff lineDiff(const QString& left, const QString& right);
+LineDiff lineDiff(const QString& left, const QString& right, Options opts = {});
 
 }  // namespace Diff

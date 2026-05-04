@@ -66,6 +66,9 @@ private:
     QAction* m_actPrevDiff = nullptr;
     QAction* m_actNextDiffFile = nullptr;
     QAction* m_actCloseTab = nullptr;
+    QAction* m_actIgnoreCase = nullptr;
+    QAction* m_actIgnoreWhitespace = nullptr;
+    QAction* m_actIgnoreBlankLines = nullptr;
     QAction* m_actAbout = nullptr;
 
     QMenu* m_recentMenu = nullptr;
@@ -81,6 +84,7 @@ private:
 
     DiffView* currentDiffView() const;
     TreeCompareView* currentTreeView() const;
+    void applyDiffOptionsToAllTabs();
     DiffView* findDiffTabForPair(const QString& left, const QString& right) const;
     TreeCompareView* findTreeTabForPair(const QString& left, const QString& right) const;
     DiffView* createDiffTab(const QString& left, const QString& right);
