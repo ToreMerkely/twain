@@ -62,11 +62,13 @@ DiffPane::DiffPane(QWidget* parent) : QPlainTextEdit(parent) {
 
     m_lineNumberArea = new LineNumberArea(this);
 
-    // Keep editable so the text cursor blinks, but filter out modifying
-    // keys in keyPressEvent. Phase B will lift this and accept typing.
     setReadOnly(false);
-    setUndoRedoEnabled(false);
+    setUndoRedoEnabled(true);
     setCursorWidth(2);
+
+    connect(this, &QPlainTextEdit::textChanged, this, [this]() {
+        if (!m_loading) emit contentEdited();
+    });
 
     connect(this, &QPlainTextEdit::blockCountChanged, this, &DiffPane::updateLineNumberAreaWidth);
     connect(this, &QPlainTextEdit::updateRequest, this, &DiffPane::updateLineNumberArea);
@@ -86,6 +88,7 @@ void DiffPane::setLanguageFromPath(const QString& path) {
 }
 
 void DiffPane::setRows(const QVector<DiffRow>& rows) {
+    m_loading = true;
     m_rows = rows;
     QStringList texts;
     texts.reserve(rows.size());
@@ -93,6 +96,70 @@ void DiffPane::setRows(const QVector<DiffRow>& rows) {
     setPlainText(texts.join('\n'));
     applyRowBackgrounds();
     m_lineNumberArea->update();
+    m_loading = false;
+}
+
+QStringList DiffPane::extractContent() const {
+    QStringList out;
+    QTextBlock block = document()->firstBlock();
+    int row = 0;
+    while (block.isValid()) {
+        const bool wasFiller = (row < m_rows.size()) && m_rows[row].filler;
+        const QString text = block.text();
+        // Pristine empty filler rows aren't part of the file — skip them.
+        if (!(wasFiller && text.isEmpty())) {
+            out.append(text);
+        }
+        block = block.next();
+        ++row;
+    }
+    return out;
+}
+
+DiffPane::CursorContext DiffPane::saveCursor() const {
+    CursorContext ctx;
+    QTextCursor c = textCursor();
+    const int targetBlock = c.blockNumber();
+    ctx.column = c.positionInBlock();
+
+    int fileLine = 0;
+    QTextBlock block = document()->firstBlock();
+    int row = 0;
+    while (block.isValid() && row < targetBlock) {
+        const bool wasFiller = (row < m_rows.size()) && m_rows[row].filler;
+        const QString text = block.text();
+        if (!(wasFiller && text.isEmpty())) ++fileLine;
+        block = block.next();
+        ++row;
+    }
+    // If the cursor's own block is a pristine filler, snap to the next real line.
+    const bool curWasFiller =
+        (targetBlock < m_rows.size()) && m_rows[targetBlock].filler;
+    const QString curText = block.isValid() ? block.text() : QString();
+    if (curWasFiller && curText.isEmpty()) {
+        // fileLine already points at the next-real-line after this filler.
+        ctx.column = 0;
+    }
+    ctx.fileLine = fileLine;
+    return ctx;
+}
+
+void DiffPane::restoreCursor(CursorContext ctx) {
+    if (ctx.fileLine < 0) return;
+    int rowToFocus = -1;
+    for (int i = 0; i < m_rows.size(); ++i) {
+        if (m_rows[i].sourceLine == ctx.fileLine && !m_rows[i].filler) {
+            rowToFocus = i;
+            break;
+        }
+    }
+    if (rowToFocus < 0) return;
+    QTextBlock blk = document()->findBlockByNumber(rowToFocus);
+    if (!blk.isValid()) return;
+    QTextCursor c(blk);
+    const int col = qMin(ctx.column, blk.length() - 1);
+    c.setPosition(blk.position() + col);
+    setTextCursor(c);
 }
 
 void DiffPane::applyRowBackgrounds() {
@@ -155,28 +222,6 @@ void DiffPane::updateLineNumberArea(const QRect& rect, int dy) {
         m_lineNumberArea->update(0, rect.y(), m_lineNumberArea->width(), rect.height());
     if (rect.contains(viewport()->rect()))
         updateLineNumberAreaWidth();
-}
-
-void DiffPane::keyPressEvent(QKeyEvent* event) {
-    switch (event->key()) {
-        case Qt::Key_Up:
-        case Qt::Key_Down:
-        case Qt::Key_Left:
-        case Qt::Key_Right:
-        case Qt::Key_PageUp:
-        case Qt::Key_PageDown:
-        case Qt::Key_Home:
-        case Qt::Key_End:
-            QPlainTextEdit::keyPressEvent(event);
-            return;
-    }
-    if (event->matches(QKeySequence::Copy) ||
-        event->matches(QKeySequence::SelectAll)) {
-        QPlainTextEdit::keyPressEvent(event);
-        return;
-    }
-    // Anything that would modify text — drop. Let parent handle shortcuts.
-    event->ignore();
 }
 
 void DiffPane::resizeEvent(QResizeEvent* event) {

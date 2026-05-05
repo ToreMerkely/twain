@@ -28,6 +28,14 @@ public:
     void setSide(Side s);
     void setRows(const QVector<DiffRow>& rows);
     void setLanguageFromPath(const QString& path);
+    QStringList extractContent() const;
+
+    struct CursorContext {
+        int fileLine = -1;
+        int column = 0;
+    };
+    CursorContext saveCursor() const;
+    void restoreCursor(CursorContext ctx);
 
     void lineNumberAreaPaintEvent(QPaintEvent* event);
     void lineNumberAreaMousePressEvent(QMouseEvent* event);
@@ -36,10 +44,10 @@ public:
 
 signals:
     void arrowClicked(int row);
+    void contentEdited();
 
 protected:
     void resizeEvent(QResizeEvent* event) override;
-    void keyPressEvent(QKeyEvent* event) override;
 
 private slots:
     void updateLineNumberAreaWidth();
@@ -52,4 +60,5 @@ private:
     QVector<DiffRow> m_rows;
     QSyntaxHighlighter* m_highlighter = nullptr;
     Side m_side = Side::Left;
+    bool m_loading = false;
 };

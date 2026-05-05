@@ -34,6 +34,14 @@ DiffView::DiffView(QWidget* parent) : QWidget(parent) {
             [this](int row) { onArrowClicked(/*fromLeftPane=*/true, row); });
     connect(m_right, &DiffPane::arrowClicked, this,
             [this](int row) { onArrowClicked(/*fromLeftPane=*/false, row); });
+    connect(m_left, &DiffPane::contentEdited, this, [this]() {
+        m_leftLines = m_left->extractContent();
+        setDirty(true);
+    });
+    connect(m_right, &DiffPane::contentEdited, this, [this]() {
+        m_rightLines = m_right->extractContent();
+        setDirty(true);
+    });
 }
 
 QByteArray DiffView::saveSplitterState() const { return m_splitter->saveState(); }
@@ -415,5 +423,22 @@ bool DiffView::save(QString* error) {
     if (!writeOne(m_leftPath, m_leftLines)) return false;
     if (!writeOne(m_rightPath, m_rightLines)) return false;
     setDirty(false);
+
+    const auto leftCtx = m_left->saveCursor();
+    const auto rightCtx = m_right->saveCursor();
+    const QWidget* focused = (m_left->hasFocus()) ? static_cast<QWidget*>(m_left)
+                                                  : (m_right->hasFocus() ? static_cast<QWidget*>(m_right) : nullptr);
+    const int sv = m_left->verticalScrollBar()->value();
+
+    rebuildView();
+
+    m_left->restoreCursor(leftCtx);
+    m_right->restoreCursor(rightCtx);
+    m_syncing = true;
+    m_left->verticalScrollBar()->setValue(sv);
+    m_right->verticalScrollBar()->setValue(sv);
+    m_syncing = false;
+    if (focused == m_left) m_left->setFocus();
+    else if (focused == m_right) m_right->setFocus();
     return true;
 }
