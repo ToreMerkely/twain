@@ -201,7 +201,7 @@ void DiffPane::lineNumberAreaMousePressEvent(QMouseEvent* event) {
         if (y >= top && y < bottom) {
             if (blockNumber < m_rows.size()) {
                 const auto& r = m_rows[blockNumber];
-                if (r.kind != Diff::Op::Equal && !r.filler) {
+                if (r.kind != Diff::Op::Equal) {
                     emit arrowClicked(blockNumber);
                 }
             }
