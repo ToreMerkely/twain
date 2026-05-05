@@ -270,6 +270,9 @@ bool DiffView::setFiles(const QString& leftPath, const QString& rightPath, QStri
     m_currentDiff = -1;
     m_left->verticalScrollBar()->setValue(0);
     m_right->verticalScrollBar()->setValue(0);
+    QTextCursor c(m_left->document()->findBlockByNumber(0));
+    m_left->setTextCursor(c);
+    m_left->setFocus();
     emit currentDifferenceChanged(-1, m_diffBlocks.size());
     return true;
 }
@@ -333,6 +336,7 @@ void DiffView::goToDiff(int index) {
     QTextCursor cursor(m_left->document()->findBlockByNumber(row));
     m_left->setTextCursor(cursor);
     m_left->centerCursor();
+    m_left->setFocus();
     m_syncing = true;
     m_right->verticalScrollBar()->setValue(m_left->verticalScrollBar()->value());
     m_syncing = false;

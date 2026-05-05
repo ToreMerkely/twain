@@ -2,6 +2,7 @@
 
 #include <QColor>
 #include <QFont>
+#include <QKeyEvent>
 #include <QMouseEvent>
 #include <QSyntaxHighlighter>
 
@@ -58,6 +59,12 @@ DiffPane::DiffPane(QWidget* parent) : QPlainTextEdit(parent) {
     setReadOnly(true);
 
     m_lineNumberArea = new LineNumberArea(this);
+
+    // Keep editable so the text cursor blinks, but filter out modifying
+    // keys in keyPressEvent. Phase B will lift this and accept typing.
+    setReadOnly(false);
+    setUndoRedoEnabled(false);
+    setCursorWidth(2);
 
     connect(this, &QPlainTextEdit::blockCountChanged, this, &DiffPane::updateLineNumberAreaWidth);
     connect(this, &QPlainTextEdit::updateRequest, this, &DiffPane::updateLineNumberArea);
@@ -146,6 +153,28 @@ void DiffPane::updateLineNumberArea(const QRect& rect, int dy) {
         m_lineNumberArea->update(0, rect.y(), m_lineNumberArea->width(), rect.height());
     if (rect.contains(viewport()->rect()))
         updateLineNumberAreaWidth();
+}
+
+void DiffPane::keyPressEvent(QKeyEvent* event) {
+    switch (event->key()) {
+        case Qt::Key_Up:
+        case Qt::Key_Down:
+        case Qt::Key_Left:
+        case Qt::Key_Right:
+        case Qt::Key_PageUp:
+        case Qt::Key_PageDown:
+        case Qt::Key_Home:
+        case Qt::Key_End:
+            QPlainTextEdit::keyPressEvent(event);
+            return;
+    }
+    if (event->matches(QKeySequence::Copy) ||
+        event->matches(QKeySequence::SelectAll)) {
+        QPlainTextEdit::keyPressEvent(event);
+        return;
+    }
+    // Anything that would modify text — drop. Let parent handle shortcuts.
+    event->ignore();
 }
 
 void DiffPane::resizeEvent(QResizeEvent* event) {
