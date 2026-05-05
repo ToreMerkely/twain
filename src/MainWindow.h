@@ -23,6 +23,7 @@ public:
 
 protected:
     void closeEvent(QCloseEvent* event) override;
+    bool eventFilter(QObject* obj, QEvent* event) override;
 
 private slots:
     void openPair();
@@ -31,10 +32,12 @@ private slots:
     void openFolderPair();
     void refresh();
     void save();
+    void undo();
     void nextDifference();
     void prevDifference();
     void nextDifferentFile();
     void showAbout();
+    void showGitDiffToolHelp();
     void rebuildRecentMenu();
     void rebuildRecentFoldersMenu();
     void onFileActivatedFromTree(const QString& leftPath, const QString& rightPath);
@@ -68,10 +71,12 @@ private:
     QAction* m_actNextDiffFile = nullptr;
     QAction* m_actCloseTab = nullptr;
     QAction* m_actSave = nullptr;
+    QAction* m_actUndo = nullptr;
     QAction* m_actIgnoreCase = nullptr;
     QAction* m_actIgnoreWhitespace = nullptr;
     QAction* m_actIgnoreBlankLines = nullptr;
     QAction* m_actAbout = nullptr;
+    QAction* m_actGitDifftool = nullptr;
 
     QMenu* m_recentMenu = nullptr;
     QMenu* m_recentFoldersMenu = nullptr;

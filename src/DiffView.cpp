@@ -392,6 +392,9 @@ void DiffView::onArrowClicked(bool fromLeftPane, int row) {
     if (idx < 0) return;
     const Block b = m_diffBlocks[idx];
 
+    // Snapshot for arrow-undo before mutating.
+    m_arrowUndoStack.push({m_leftLines, m_rightLines});
+
     // Clear any previous highlight; we'll set the new one based on the destination.
     m_highlightLeftStart = -1;
     m_highlightLeftCount = 0;
@@ -414,14 +417,22 @@ void DiffView::onArrowClicked(bool fromLeftPane, int row) {
         m_highlightLeftCount = src.size();
     }
 
-    // Preserve scroll position across the rebuild.
+    // Preserve scroll + cursor position across the rebuild.
+    const auto leftCtx = m_left->saveCursor();
+    const auto rightCtx = m_right->saveCursor();
+    const QWidget* focused = (m_left->hasFocus()) ? static_cast<QWidget*>(m_left)
+                                                  : (m_right->hasFocus() ? static_cast<QWidget*>(m_right) : nullptr);
     const int sv = m_left->verticalScrollBar()->value();
     setDirty(true);
     rebuildView();
+    m_left->restoreCursor(leftCtx);
+    m_right->restoreCursor(rightCtx);
     m_syncing = true;
     m_left->verticalScrollBar()->setValue(sv);
     m_right->verticalScrollBar()->setValue(sv);
     m_syncing = false;
+    if (focused == m_left) m_left->setFocus();
+    else if (focused == m_right) m_right->setFocus();
 
     emit currentDifferenceChanged(m_currentDiff, m_diffBlocks.size());
 }
@@ -430,6 +441,35 @@ void DiffView::setDirty(bool d) {
     if (m_dirty == d) return;
     m_dirty = d;
     emit dirtyChanged(d);
+}
+
+void DiffView::undoArrow() {
+    if (m_arrowUndoStack.isEmpty()) return;
+    const auto snap = m_arrowUndoStack.pop();
+    m_leftLines = snap.leftLines;
+    m_rightLines = snap.rightLines;
+    m_highlightLeftStart = -1;
+    m_highlightLeftCount = 0;
+    m_highlightRightStart = -1;
+    m_highlightRightCount = 0;
+
+    const auto leftCtx = m_left->saveCursor();
+    const auto rightCtx = m_right->saveCursor();
+    const QWidget* focused = (m_left->hasFocus()) ? static_cast<QWidget*>(m_left)
+                                                  : (m_right->hasFocus() ? static_cast<QWidget*>(m_right) : nullptr);
+    const int sv = m_left->verticalScrollBar()->value();
+
+    rebuildView();
+
+    m_left->restoreCursor(leftCtx);
+    m_right->restoreCursor(rightCtx);
+    m_syncing = true;
+    m_left->verticalScrollBar()->setValue(sv);
+    m_right->verticalScrollBar()->setValue(sv);
+    m_syncing = false;
+    if (focused == m_left) m_left->setFocus();
+    else if (focused == m_right) m_right->setFocus();
+    setDirty(true);
 }
 
 bool DiffView::save(QString* error) {
@@ -450,6 +490,7 @@ bool DiffView::save(QString* error) {
     if (!writeOne(m_leftPath, m_leftLines)) return false;
     if (!writeOne(m_rightPath, m_rightLines)) return false;
     setDirty(false);
+    m_arrowUndoStack.clear();
 
     const auto leftCtx = m_left->saveCursor();
     const auto rightCtx = m_right->saveCursor();

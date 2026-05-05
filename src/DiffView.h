@@ -1,7 +1,9 @@
 #pragma once
 
 #include <QByteArray>
+#include <QStack>
 #include <QString>
+#include <QStringList>
 #include <QVector>
 #include <QWidget>
 
@@ -28,6 +30,9 @@ public:
     QString rightPath() const { return m_rightPath; }
     bool isDirty() const { return m_dirty; }
     bool save(QString* error = nullptr);
+
+    bool canUndoArrow() const { return !m_arrowUndoStack.isEmpty(); }
+    void undoArrow();
 
     void nextDifference();
     void prevDifference();
@@ -56,6 +61,11 @@ private:
 
     QStringList m_leftLines;
     QStringList m_rightLines;
+    struct ArrowSnapshot {
+        QStringList leftLines;
+        QStringList rightLines;
+    };
+    QStack<ArrowSnapshot> m_arrowUndoStack;
     QVector<Block> m_diffBlocks;
     int m_highlightLeftStart = -1;
     int m_highlightLeftCount = 0;

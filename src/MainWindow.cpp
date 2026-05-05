@@ -5,6 +5,7 @@
 
 #include <QAction>
 #include <QApplication>
+#include <QClipboard>
 #include <QCloseEvent>
 #include <QComboBox>
 #include <QFileDialog>
@@ -15,6 +16,9 @@
 #include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
+#include <QKeyEvent>
+#include <QPlainTextEdit>
+#include <QPushButton>
 #include <QSettings>
 #include <QStatusBar>
 #include <QStyle>
@@ -50,6 +54,27 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
     readSettings();
     updateForCurrentTab();
+    qApp->installEventFilter(this);
+}
+
+bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
+    if (event->type() == QEvent::ShortcutOverride) {
+        auto* ke = static_cast<QKeyEvent*>(event);
+        if (ke->matches(QKeySequence::Undo)) {
+            // Reserve Ctrl+Z for our handler; otherwise QPlainTextEdit's
+            // internal binding eats it first and our QAction never fires.
+            QWidget* focused = QApplication::focusWidget();
+            if (auto* pte = qobject_cast<QPlainTextEdit*>(focused)) {
+                if (pte->document()->isUndoAvailable()) {
+                    return false;  // let pte handle it
+                }
+            }
+            undo();
+            event->accept();
+            return true;
+        }
+    }
+    return QMainWindow::eventFilter(obj, event);
 }
 
 MainWindow::~MainWindow() = default;
@@ -130,6 +155,12 @@ void MainWindow::createActions() {
     m_actSave->setEnabled(false);
     connect(m_actSave, &QAction::triggered, this, &MainWindow::save);
 
+    m_actUndo = new QAction("&Undo", this);
+    m_actUndo->setShortcut(QKeySequence::Undo);
+    m_actUndo->setShortcutContext(Qt::ApplicationShortcut);
+    connect(m_actUndo, &QAction::triggered, this, &MainWindow::undo);
+    addAction(m_actUndo);
+
     m_actCloseTab = new QAction("&Close Tab", this);
     m_actCloseTab->setShortcut(QKeySequence::Close);  // Ctrl+W
     connect(m_actCloseTab, &QAction::triggered, this, [this]() {
@@ -150,6 +181,9 @@ void MainWindow::createActions() {
 
     m_actAbout = new QAction("&About", this);
     connect(m_actAbout, &QAction::triggered, this, &MainWindow::showAbout);
+
+    m_actGitDifftool = new QAction("Configure as git &difftool...", this);
+    connect(m_actGitDifftool, &QAction::triggered, this, &MainWindow::showGitDiffToolHelp);
 }
 
 void MainWindow::createMenus() {
@@ -179,6 +213,7 @@ void MainWindow::createMenus() {
     viewMenu->addAction(m_actIgnoreBlankLines);
 
     auto* helpMenu = menuBar()->addMenu("&Help");
+    helpMenu->addAction(m_actGitDifftool);
     helpMenu->addAction(m_actAbout);
 }
 
@@ -303,6 +338,19 @@ void MainWindow::save() {
     }
 }
 
+void MainWindow::undo() {
+    QWidget* focused = QApplication::focusWidget();
+    if (auto* pte = qobject_cast<QPlainTextEdit*>(focused)) {
+        if (pte->document()->isUndoAvailable()) {
+            pte->undo();
+            return;
+        }
+    }
+    if (auto* dv = currentDiffView()) {
+        if (dv->canUndoArrow()) dv->undoArrow();
+    }
+}
+
 void MainWindow::refresh() {
     if (auto* v = currentDiffView()) {
         QString error;
@@ -358,6 +406,39 @@ void MainWindow::nextDifferentFile() {
 void MainWindow::showAbout() {
     QMessageBox::about(this, "About twain",
                        "twain — a side-by-side diff tool.\nVersion 0.3.0");
+}
+
+void MainWindow::showGitDiffToolHelp() {
+    const QString bin = QCoreApplication::applicationFilePath();
+    const QString cmd1 = QString("git config --global diff.tool twain");
+    const QString cmd2 =
+        QString("git config --global difftool.twain.cmd '%1 \"$LOCAL\" \"$REMOTE\"'").arg(bin);
+    const QString cmd3 = QString("git config --global difftool.prompt false");
+    const QString body = QString(
+        "<p>Run these once to register twain as a git difftool:</p>"
+        "<pre>%1\n%2\n%3</pre>"
+        "<p>Then use it from any repo:</p>"
+        "<pre>git difftool -d                # tree view: all changed files at once\n"
+        "git difftool -d HEAD~1         # tree view vs a revision\n"
+        "git difftool -d HEAD~1 HEAD    # what a commit changed (like 'git show')\n"
+        "git difftool                   # one file at a time (default)</pre>"
+        "<p>The <code>-d</code> / <code>--dir-diff</code> flag is what gives you the "
+        "side-by-side folder tree. Without it, git invokes the "
+        "difftool once per changed file.</p>"
+        "<p>Drop <code>--global</code> to set per-repo only. A handy alias:</p>"
+        "<pre>git config --global alias.dd 'difftool --dir-diff'</pre>")
+        .arg(cmd1.toHtmlEscaped(), cmd2.toHtmlEscaped(), cmd3.toHtmlEscaped());
+
+    QMessageBox box(this);
+    box.setWindowTitle("Configure as git difftool");
+    box.setTextFormat(Qt::RichText);
+    box.setText(body);
+    QPushButton* copyBtn = box.addButton("Copy commands", QMessageBox::ActionRole);
+    box.addButton(QMessageBox::Close);
+    box.exec();
+    if (box.clickedButton() == copyBtn) {
+        QApplication::clipboard()->setText(cmd1 + "\n" + cmd2 + "\n" + cmd3);
+    }
 }
 
 void MainWindow::updatePathStatus() {
@@ -569,6 +650,7 @@ void MainWindow::onTabCloseRequested(int index) {
     m_tabs->removeTab(index);
     if (w) w->deleteLater();
     updateForCurrentTab();
+    if (m_tabs->count() == 0) close();
 }
 
 void MainWindow::applyDiffOptionsToAllTabs() {
