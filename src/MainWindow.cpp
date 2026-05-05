@@ -55,6 +55,31 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 MainWindow::~MainWindow() = default;
 
 void MainWindow::closeEvent(QCloseEvent* event) {
+    for (int i = 0; i < m_tabs->count(); ++i) {
+        if (auto* dv = qobject_cast<DiffView*>(m_tabs->widget(i)); dv && dv->isDirty()) {
+            const auto reply = QMessageBox::question(
+                this, "twain",
+                "There are unsaved changes. Save all before quitting?",
+                QMessageBox::SaveAll | QMessageBox::Discard | QMessageBox::Cancel);
+            if (reply == QMessageBox::Cancel) {
+                event->ignore();
+                return;
+            }
+            if (reply == QMessageBox::SaveAll) {
+                for (int j = 0; j < m_tabs->count(); ++j) {
+                    if (auto* dv2 = qobject_cast<DiffView*>(m_tabs->widget(j)); dv2 && dv2->isDirty()) {
+                        QString error;
+                        if (!dv2->save(&error)) {
+                            QMessageBox::warning(this, "twain", error);
+                            event->ignore();
+                            return;
+                        }
+                    }
+                }
+            }
+            break;
+        }
+    }
     writeSettings();
     QMainWindow::closeEvent(event);
 }
@@ -100,6 +125,11 @@ void MainWindow::createActions() {
     connect(m_actNextDiffFile, &QAction::triggered, this, &MainWindow::nextDifferentFile);
     addAction(m_actNextDiffFile);  // not in toolbar; shortcut active globally
 
+    m_actSave = new QAction(icon(QStyle::SP_DialogSaveButton), "&Save", this);
+    m_actSave->setShortcut(QKeySequence::Save);
+    m_actSave->setEnabled(false);
+    connect(m_actSave, &QAction::triggered, this, &MainWindow::save);
+
     m_actCloseTab = new QAction("&Close Tab", this);
     m_actCloseTab->setShortcut(QKeySequence::Close);  // Ctrl+W
     connect(m_actCloseTab, &QAction::triggered, this, [this]() {
@@ -134,6 +164,7 @@ void MainWindow::createMenus() {
     connect(m_recentFoldersMenu, &QMenu::aboutToShow, this, &MainWindow::rebuildRecentFoldersMenu);
     fileMenu->addSeparator();
     fileMenu->addAction(m_actRefresh);
+    fileMenu->addAction(m_actSave);
     fileMenu->addAction(m_actCloseTab);
     fileMenu->addSeparator();
     fileMenu->addAction(m_actQuit);
@@ -156,6 +187,7 @@ void MainWindow::createToolBar() {
     tb->setObjectName("MainToolBar");
     tb->addAction(m_actOpenPair);
     tb->addAction(m_actOpenFolderPair);
+    tb->addAction(m_actSave);
     tb->addAction(m_actRefresh);
     tb->addSeparator();
     tb->addAction(m_actPrevDiff);
@@ -260,6 +292,15 @@ void MainWindow::loadFolderPair(const QString& leftPath, const QString& rightPat
     updateTreeTabTitle(view);
     rememberRecentPair("recentFolders", leftPath, rightPath);
     updateForCurrentTab();
+}
+
+void MainWindow::save() {
+    auto* dv = currentDiffView();
+    if (!dv || !dv->isDirty()) return;
+    QString error;
+    if (!dv->save(&error)) {
+        QMessageBox::warning(this, "twain", error);
+    }
 }
 
 void MainWindow::refresh() {
@@ -374,6 +415,10 @@ DiffView* MainWindow::createDiffTab(const QString& left, const QString& right) {
             [this, view](int, int) {
                 if (currentDiffView() == view) updateForCurrentTab();
             });
+    connect(view, &DiffView::dirtyChanged, this, [this, view](bool) {
+        updateDiffTabTitle(view);
+        if (currentDiffView() == view) updateForCurrentTab();
+    });
     const QString l = QFileInfo(left).fileName();
     const QString r = QFileInfo(right).fileName();
     const QString title = (l == r && !l.isEmpty()) ? l : QString("%1 ⟷ %2").arg(l, r);
@@ -411,8 +456,10 @@ void MainWindow::updateDiffTabTitle(DiffView* view) {
     if (idx < 0) return;
     const QString l = QFileInfo(view->leftPath()).fileName();
     const QString r = QFileInfo(view->rightPath()).fileName();
-    const QString title = (l == r && !l.isEmpty()) ? l : QString("%1 ⟷ %2").arg(l, r);
-    m_tabs->setTabText(idx, title.isEmpty() ? "untitled" : title);
+    QString title = (l == r && !l.isEmpty()) ? l : QString("%1 ⟷ %2").arg(l, r);
+    if (title.isEmpty()) title = "untitled";
+    if (view->isDirty()) title += " *";
+    m_tabs->setTabText(idx, title);
     m_tabs->setTabToolTip(idx, view->leftPath() + "\n" + view->rightPath());
 }
 
@@ -456,6 +503,7 @@ void MainWindow::updateForCurrentTab() {
         m_actNextDiff->setEnabled(n > 0);
         m_actPrevDiff->setEnabled(n > 0);
         m_actNextDiffFile->setEnabled(true);
+        m_actSave->setEnabled(dv->isDirty());
         setWindowTitle(QString("twain — %1 ⟷ %2")
                            .arg(QFileInfo(dv->leftPath()).fileName(),
                                 QFileInfo(dv->rightPath()).fileName()));
@@ -475,6 +523,7 @@ void MainWindow::updateForCurrentTab() {
         m_actNextDiff->setEnabled(true);
         m_actPrevDiff->setEnabled(true);
         m_actNextDiffFile->setEnabled(true);
+        m_actSave->setEnabled(false);
         for (int i = 0; i < m_filterCombo->count(); ++i) {
             if (m_filterCombo->itemData(i).toInt() == int(tv->filter())) {
                 const QSignalBlocker blocker(m_filterCombo);
@@ -491,6 +540,7 @@ void MainWindow::updateForCurrentTab() {
         m_actNextDiff->setEnabled(false);
         m_actPrevDiff->setEnabled(false);
         m_actNextDiffFile->setEnabled(false);
+        m_actSave->setEnabled(false);
         setWindowTitle("twain");
     }
 }
@@ -501,6 +551,21 @@ void MainWindow::onTabChanged(int /*index*/) {
 
 void MainWindow::onTabCloseRequested(int index) {
     QWidget* w = m_tabs->widget(index);
+    if (auto* dv = qobject_cast<DiffView*>(w); dv && dv->isDirty()) {
+        const auto reply = QMessageBox::question(
+            this, "twain",
+            QString("Save changes to\n%1\n%2 ?")
+                .arg(dv->leftPath(), dv->rightPath()),
+            QMessageBox::Save | QMessageBox::Discard | QMessageBox::Cancel);
+        if (reply == QMessageBox::Cancel) return;
+        if (reply == QMessageBox::Save) {
+            QString error;
+            if (!dv->save(&error)) {
+                QMessageBox::warning(this, "twain", error);
+                return;
+            }
+        }
+    }
     m_tabs->removeTab(index);
     if (w) w->deleteLater();
     updateForCurrentTab();

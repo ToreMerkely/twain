@@ -22,10 +22,12 @@ public:
     bool setFiles(const QString& leftPath, const QString& rightPath, QString* error = nullptr);
     void setOptions(Options opts);
     Options options() const { return m_options; }
-    int differenceCount() const { return m_diffRows.size(); }
+    int differenceCount() const { return m_diffBlocks.size(); }
     int currentDifference() const { return m_currentDiff; }
     QString leftPath() const { return m_leftPath; }
     QString rightPath() const { return m_rightPath; }
+    bool isDirty() const { return m_dirty; }
+    bool save(QString* error = nullptr);
 
     void nextDifference();
     void prevDifference();
@@ -33,8 +35,18 @@ public:
     QByteArray saveSplitterState() const;
     void restoreSplitterState(const QByteArray& state);
 
+    struct Block {
+        int rowStart = 0;
+        int rowEnd = 0;
+        int leftStart = 0;
+        int leftCount = 0;
+        int rightStart = 0;
+        int rightCount = 0;
+    };
+
 signals:
     void currentDifferenceChanged(int index, int total);
+    void dirtyChanged(bool dirty);
 
 private:
     QSplitter* m_splitter;
@@ -42,12 +54,23 @@ private:
     DiffPane* m_right;
     bool m_syncing = false;
 
-    QVector<int> m_diffRows;
+    QStringList m_leftLines;
+    QStringList m_rightLines;
+    QVector<Block> m_diffBlocks;
+    int m_highlightLeftStart = -1;
+    int m_highlightLeftCount = 0;
+    int m_highlightRightStart = -1;
+    int m_highlightRightCount = 0;
     int m_currentDiff = -1;
     QString m_leftPath;
     QString m_rightPath;
     Options m_options;
+    bool m_dirty = false;
+    void rebuildView();
+    void onArrowClicked(bool fromLeftPane, int row);
+    void setDirty(bool d);
 
     void syncScroll(DiffPane* source, DiffPane* target, int value);
     void goToDiff(int index);
+    int blockIndexAtRow(int row) const;
 };

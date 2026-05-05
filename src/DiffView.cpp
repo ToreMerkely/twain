@@ -30,6 +30,10 @@ DiffView::DiffView(QWidget* parent) : QWidget(parent) {
             [this](int v) { syncScroll(m_left, m_right, v); });
     connect(m_right->verticalScrollBar(), &QScrollBar::valueChanged, this,
             [this](int v) { syncScroll(m_right, m_left, v); });
+    connect(m_left, &DiffPane::arrowClicked, this,
+            [this](int row) { onArrowClicked(/*fromLeftPane=*/true, row); });
+    connect(m_right, &DiffPane::arrowClicked, this,
+            [this](int row) { onArrowClicked(/*fromLeftPane=*/false, row); });
 }
 
 QByteArray DiffView::saveSplitterState() const { return m_splitter->saveState(); }
@@ -89,14 +93,30 @@ static void filterBlanks(const QStringList& orig, QStringList* out, QVector<int>
     }
 }
 
-static void buildAlignedRows(const QStringList& left, const QStringList& right,
-                             const QVector<int>& leftMap, const QVector<int>& rightMap,
-                             const QVector<Diff::Hunk>& hunks, Diff::Options diffOpts,
-                             QVector<DiffRow>& leftRows, QVector<DiffRow>& rightRows,
-                             QVector<int>& diffRowStarts) {
+struct AlignedBuildResult {
+    QVector<DiffView::Block> blocks;
+};
+
+struct HighlightRange {
+    int leftStart = -1;
+    int leftCount = 0;
+    int rightStart = -1;
+    int rightCount = 0;
+};
+
+static bool inRange(int idx, int start, int count) {
+    return start >= 0 && idx >= start && idx < start + count;
+}
+
+static AlignedBuildResult buildAlignedRows(
+    const QStringList& left, const QStringList& right,
+    const QVector<int>& leftMap, const QVector<int>& rightMap,
+    const QVector<Diff::Hunk>& hunks, Diff::Options diffOpts,
+    HighlightRange highlight,
+    QVector<DiffRow>& leftRows, QVector<DiffRow>& rightRows) {
+    AlignedBuildResult res;
     leftRows.clear();
     rightRows.clear();
-    diffRowStarts.clear();
 
     int i = 0;
     while (i < hunks.size()) {
@@ -105,8 +125,12 @@ static void buildAlignedRows(const QStringList& left, const QStringList& right,
             for (int k = 0; k < h.leftCount; ++k) {
                 const int li = leftMap[h.leftStart + k];
                 const int ri = rightMap[h.rightStart + k];
-                leftRows.append({li, left[li], Diff::Op::Equal, false, {}});
-                rightRows.append({ri, right[ri], Diff::Op::Equal, false, {}});
+                DiffRow lr{li, left[li], Diff::Op::Equal, false, {}, false};
+                DiffRow rr{ri, right[ri], Diff::Op::Equal, false, {}, false};
+                lr.recentlyCopied = inRange(li, highlight.leftStart, highlight.leftCount);
+                rr.recentlyCopied = inRange(ri, highlight.rightStart, highlight.rightCount);
+                leftRows.append(lr);
+                rightRows.append(rr);
             }
             ++i;
             continue;
@@ -132,7 +156,37 @@ static void buildAlignedRows(const QStringList& left, const QStringList& right,
             ++i;
         }
 
-        diffRowStarts.append(leftRows.size());
+        DiffView::Block block;
+        block.rowStart = leftRows.size();
+        block.leftStart = hasDel ? leftMap[del.leftStart] : (del.leftStart < leftMap.size() ? leftMap[del.leftStart] : left.size());
+        block.leftCount = hasDel ? del.leftCount : 0;
+        if (hasDel && del.leftStart < leftMap.size()) {
+            // Translate count: filtered count back to original-line span.
+            const int firstOrig = leftMap[del.leftStart];
+            const int lastOrig = leftMap[del.leftStart + del.leftCount - 1];
+            block.leftStart = firstOrig;
+            block.leftCount = lastOrig - firstOrig + 1;
+        } else if (!hasDel) {
+            // Pure insert: figure out where in left the insert falls.
+            block.leftStart = ins.leftStart < leftMap.size()
+                                  ? leftMap[ins.leftStart]
+                                  : left.size();
+            block.leftCount = 0;
+        }
+        if (hasIns && ins.rightStart < rightMap.size()) {
+            const int firstOrig = rightMap[ins.rightStart];
+            const int lastOrig = rightMap[ins.rightStart + ins.rightCount - 1];
+            block.rightStart = firstOrig;
+            block.rightCount = lastOrig - firstOrig + 1;
+        } else if (!hasIns) {
+            block.rightStart = del.rightStart < rightMap.size()
+                                   ? rightMap[del.rightStart]
+                                   : right.size();
+            block.rightCount = 0;
+        } else {
+            block.rightStart = right.size();
+            block.rightCount = 0;
+        }
         const int rows = qMax(hasDel ? del.leftCount : 0, hasIns ? ins.rightCount : 0);
         for (int k = 0; k < rows; ++k) {
             const bool leftReal = hasDel && k < del.leftCount;
@@ -159,7 +213,10 @@ static void buildAlignedRows(const QStringList& left, const QStringList& right,
             leftRows.append(lr);
             rightRows.append(rr);
         }
+        block.rowEnd = leftRows.size();
+        res.blocks.append(block);
     }
+    return res;
 }
 
 bool DiffView::setFiles(const QString& leftPath, const QString& rightPath, QString* error) {
@@ -200,23 +257,53 @@ bool DiffView::setFiles(const QString& leftPath, const QString& rightPath, QStri
         for (int i = 0; i < rightLines.size(); ++i) rightMap.append(i);
     }
 
-    const auto hunks = Diff::compute(compareLeft, compareRight, diffOpts);
-    QVector<DiffRow> leftRows, rightRows;
-    buildAlignedRows(leftLines, rightLines, leftMap, rightMap, hunks, diffOpts,
-                     leftRows, rightRows, m_diffRows);
-
     m_leftPath = leftPath;
     m_rightPath = rightPath;
+    m_leftLines = leftLines;
+    m_rightLines = rightLines;
     m_left->setLanguageFromPath(leftPath.isEmpty() ? rightPath : leftPath);
     m_right->setLanguageFromPath(rightPath.isEmpty() ? leftPath : rightPath);
-    m_left->setRows(leftRows);
-    m_right->setRows(rightRows);
+
+    rebuildView();
+    setDirty(false);
 
     m_currentDiff = -1;
     m_left->verticalScrollBar()->setValue(0);
     m_right->verticalScrollBar()->setValue(0);
-    emit currentDifferenceChanged(-1, m_diffRows.size());
+    emit currentDifferenceChanged(-1, m_diffBlocks.size());
     return true;
+}
+
+void DiffView::rebuildView() {
+    Diff::Options diffOpts;
+    diffOpts.ignoreCase = m_options.ignoreCase;
+    diffOpts.ignoreWhitespace = m_options.ignoreWhitespace;
+
+    QStringList compareLeft = m_leftLines;
+    QStringList compareRight = m_rightLines;
+    QVector<int> leftMap, rightMap;
+    if (m_options.ignoreBlankLines) {
+        filterBlanks(m_leftLines, &compareLeft, &leftMap);
+        filterBlanks(m_rightLines, &compareRight, &rightMap);
+    } else {
+        leftMap.reserve(m_leftLines.size());
+        rightMap.reserve(m_rightLines.size());
+        for (int i = 0; i < m_leftLines.size(); ++i) leftMap.append(i);
+        for (int i = 0; i < m_rightLines.size(); ++i) rightMap.append(i);
+    }
+
+    const auto hunks = Diff::compute(compareLeft, compareRight, diffOpts);
+    QVector<DiffRow> leftRows, rightRows;
+    HighlightRange hl;
+    hl.leftStart = m_highlightLeftStart;
+    hl.leftCount = m_highlightLeftCount;
+    hl.rightStart = m_highlightRightStart;
+    hl.rightCount = m_highlightRightCount;
+    auto res = buildAlignedRows(m_leftLines, m_rightLines, leftMap, rightMap,
+                                hunks, diffOpts, hl, leftRows, rightRows);
+    m_diffBlocks = res.blocks;
+    m_left->setRows(leftRows);
+    m_right->setRows(rightRows);
 }
 
 void DiffView::setOptions(Options opts) {
@@ -227,31 +314,102 @@ void DiffView::setOptions(Options opts) {
 }
 
 void DiffView::nextDifference() {
-    if (m_diffRows.isEmpty()) return;
-    if (m_currentDiff + 1 >= m_diffRows.size()) return;
+    if (m_diffBlocks.isEmpty()) return;
+    if (m_currentDiff + 1 >= m_diffBlocks.size()) return;
     goToDiff(m_currentDiff + 1);
 }
 
 void DiffView::prevDifference() {
-    if (m_diffRows.isEmpty()) return;
+    if (m_diffBlocks.isEmpty()) return;
     if (m_currentDiff <= 0) return;
     goToDiff(m_currentDiff - 1);
 }
 
 void DiffView::goToDiff(int index) {
-    if (index < 0 || index >= m_diffRows.size()) return;
+    if (index < 0 || index >= m_diffBlocks.size()) return;
     m_currentDiff = index;
-    const int row = m_diffRows[index];
+    const int row = m_diffBlocks[index].rowStart;
 
     QTextCursor cursor(m_left->document()->findBlockByNumber(row));
     m_left->setTextCursor(cursor);
     m_left->centerCursor();
-    // Sync right pane explicitly — centerCursor doesn't always fire
-    // valueChanged on the scrollbar, and setting right's text cursor
-    // separately can land a row off.
     m_syncing = true;
     m_right->verticalScrollBar()->setValue(m_left->verticalScrollBar()->value());
     m_syncing = false;
 
-    emit currentDifferenceChanged(m_currentDiff, m_diffRows.size());
+    emit currentDifferenceChanged(m_currentDiff, m_diffBlocks.size());
+}
+
+int DiffView::blockIndexAtRow(int row) const {
+    for (int i = 0; i < m_diffBlocks.size(); ++i) {
+        const auto& b = m_diffBlocks[i];
+        if (row >= b.rowStart && row < b.rowEnd) return i;
+    }
+    return -1;
+}
+
+void DiffView::onArrowClicked(bool fromLeftPane, int row) {
+    const int idx = blockIndexAtRow(row);
+    if (idx < 0) return;
+    const Block b = m_diffBlocks[idx];
+
+    // Clear any previous highlight; we'll set the new one based on the destination.
+    m_highlightLeftStart = -1;
+    m_highlightLeftCount = 0;
+    m_highlightRightStart = -1;
+    m_highlightRightCount = 0;
+
+    if (fromLeftPane) {
+        QStringList src;
+        for (int i = 0; i < b.leftCount; ++i) src.append(m_leftLines[b.leftStart + i]);
+        for (int i = 0; i < b.rightCount; ++i) m_rightLines.removeAt(b.rightStart);
+        for (int i = src.size() - 1; i >= 0; --i) m_rightLines.insert(b.rightStart, src[i]);
+        m_highlightRightStart = b.rightStart;
+        m_highlightRightCount = src.size();
+    } else {
+        QStringList src;
+        for (int i = 0; i < b.rightCount; ++i) src.append(m_rightLines[b.rightStart + i]);
+        for (int i = 0; i < b.leftCount; ++i) m_leftLines.removeAt(b.leftStart);
+        for (int i = src.size() - 1; i >= 0; --i) m_leftLines.insert(b.leftStart, src[i]);
+        m_highlightLeftStart = b.leftStart;
+        m_highlightLeftCount = src.size();
+    }
+
+    // Preserve scroll position across the rebuild.
+    const int sv = m_left->verticalScrollBar()->value();
+    setDirty(true);
+    rebuildView();
+    m_syncing = true;
+    m_left->verticalScrollBar()->setValue(sv);
+    m_right->verticalScrollBar()->setValue(sv);
+    m_syncing = false;
+
+    emit currentDifferenceChanged(m_currentDiff, m_diffBlocks.size());
+}
+
+void DiffView::setDirty(bool d) {
+    if (m_dirty == d) return;
+    m_dirty = d;
+    emit dirtyChanged(d);
+}
+
+bool DiffView::save(QString* error) {
+    auto writeOne = [&](const QString& path, const QStringList& lines) -> bool {
+        if (path.isEmpty()) return true;
+        QFile f(path);
+        if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+            if (error) *error = "Could not write " + path;
+            return false;
+        }
+        const QByteArray bytes = lines.join('\n').toUtf8() + '\n';
+        if (f.write(bytes) != bytes.size()) {
+            if (error) *error = "Short write to " + path;
+            return false;
+        }
+        return true;
+    };
+    if (!writeOne(m_leftPath, m_leftLines)) return false;
+    if (!writeOne(m_rightPath, m_rightLines)) return false;
+    setDirty(false);
+    return true;
 }

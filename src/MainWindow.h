@@ -30,6 +30,7 @@ private slots:
     void openRight();
     void openFolderPair();
     void refresh();
+    void save();
     void nextDifference();
     void prevDifference();
     void nextDifferentFile();
@@ -66,6 +67,7 @@ private:
     QAction* m_actPrevDiff = nullptr;
     QAction* m_actNextDiffFile = nullptr;
     QAction* m_actCloseTab = nullptr;
+    QAction* m_actSave = nullptr;
     QAction* m_actIgnoreCase = nullptr;
     QAction* m_actIgnoreWhitespace = nullptr;
     QAction* m_actIgnoreBlankLines = nullptr;
