@@ -41,12 +41,14 @@ QColor colorFor(Diff::Op op, bool filler) {
 }
 
 QColor segmentColor() { return QColor(255, 150, 150); }
-QColor arrowColor() { return QColor(255, 175, 30); }
-QColor arrowEdgeColor() { return QColor(160, 100, 0); }
+QColor arrowColor() { return QColor(255, 195, 50); }
+QColor arrowEdgeColor() { return QColor(180, 120, 0); }
+QColor bracketColor() { return QColor(60, 60, 60); }
 constexpr int kArrowWidth = 12;
 constexpr int kArrowHeight = 12;
 constexpr int kArrowPad = 6;
 constexpr int kBracketPenWidth = 1;
+constexpr int kArrowNotch = 3;
 
 }  // namespace
 
@@ -184,7 +186,7 @@ void DiffPane::resizeEvent(QResizeEvent* event) {
 }
 
 int DiffPane::arrowZoneLeft() const {
-    return m_lineNumberArea->width() - kArrowWidth - 1;
+    return m_lineNumberArea->width() - kArrowWidth - 4;
 }
 
 void DiffPane::lineNumberAreaMousePressEvent(QMouseEvent* event) {
@@ -270,7 +272,7 @@ void DiffPane::lineNumberAreaPaintEvent(QPaintEvent* event) {
                 painter.save();
                 painter.setRenderHint(QPainter::Antialiasing, true);
 
-                const QPen bracketPen(arrowColor(), kBracketPenWidth, Qt::SolidLine,
+                const QPen bracketPen(bracketColor(), kBracketPenWidth, Qt::SolidLine,
                                       Qt::FlatCap, Qt::MiterJoin);
 
                 // Vertical line: full row height for mid/end rows, only below
@@ -288,28 +290,34 @@ void DiffPane::lineNumberAreaPaintEvent(QPaintEvent* event) {
 
                 if (isStart) {
                     const int ay = top + (rowHeight - kArrowHeight) / 2;
-                    QPolygon tri;
+                    const int amid = ay + kArrowHeight / 2;
+                    QPolygon arrow;
                     if (m_side == Side::Left) {
-                        tri << QPoint(lineX, ay)
-                            << QPoint(lineX + kArrowWidth, ay + kArrowHeight / 2)
-                            << QPoint(lineX, ay + kArrowHeight);
+                        // Barbed arrowhead pointing right.
+                        arrow << QPoint(lineX, ay)
+                              << QPoint(lineX + kArrowWidth, amid)
+                              << QPoint(lineX, ay + kArrowHeight)
+                              << QPoint(lineX + kArrowNotch, amid);
                     } else {
-                        tri << QPoint(lineX, ay)
-                            << QPoint(lineX - kArrowWidth, ay + kArrowHeight / 2)
-                            << QPoint(lineX, ay + kArrowHeight);
+                        arrow << QPoint(lineX, ay)
+                              << QPoint(lineX - kArrowWidth, amid)
+                              << QPoint(lineX, ay + kArrowHeight)
+                              << QPoint(lineX - kArrowNotch, amid);
                     }
                     painter.setBrush(arrowColor());
                     painter.setPen(QPen(arrowEdgeColor(), 1));
-                    painter.drawPolygon(tri);
+                    painter.drawPolygon(arrow);
                 }
                 if (isEnd) {
                     painter.setPen(bracketPen);
                     const int capLen = kArrowWidth - 2;
                     const int yEnd = top + rowHeight - 1;
+                    // Hook goes right on both sides (toward the apex on the
+                    // left pane, away from it on the right). User preference.
                     if (m_side == Side::Left) {
                         painter.drawLine(lineX, yEnd, lineX + capLen, yEnd);
                     } else {
-                        painter.drawLine(lineX, yEnd, lineX - capLen, yEnd);
+                        painter.drawLine(lineX, yEnd, lineX + capLen, yEnd);
                     }
                 }
                 painter.restore();
