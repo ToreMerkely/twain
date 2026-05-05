@@ -1,5 +1,7 @@
 #include "Diff.h"
 
+#include <QSet>
+
 namespace Diff {
 
 namespace {
@@ -210,6 +212,92 @@ LineDiff lineDiff(const QString& left, const QString& right, Options opts) {
             }
         }
     }
+    return out;
+}
+
+double similarity(const QString& a, const QString& b) {
+    if (a == b) return 1.0;
+    const auto ta = tokenize(a);
+    const auto tb = tokenize(b);
+    QSet<QString> sa;
+    QSet<QString> sb;
+    for (const auto& t : ta) {
+        if (!t.text.isEmpty() &&
+            (t.text[0].isLetterOrNumber() || t.text[0] == QLatin1Char('_'))) {
+            sa.insert(t.text);
+        }
+    }
+    for (const auto& t : tb) {
+        if (!t.text.isEmpty() &&
+            (t.text[0].isLetterOrNumber() || t.text[0] == QLatin1Char('_'))) {
+            sb.insert(t.text);
+        }
+    }
+    if (sa.isEmpty() && sb.isEmpty()) return 0.0;
+    int intersect = 0;
+    for (const auto& t : sa) if (sb.contains(t)) ++intersect;
+    const int unionSize = sa.size() + sb.size() - intersect;
+    if (unionSize == 0) return 0.0;
+    return double(intersect) / double(unionSize);
+}
+
+QVector<AlignmentPair> alignBlock(const QStringList& left, const QStringList& right) {
+    const int n = left.size();
+    const int m = right.size();
+    constexpr double kSimilarityThreshold = 0.3;
+
+    QVector<QVector<double>> score(n + 1, QVector<double>(m + 1, 0.0));
+    QVector<QVector<int>> back(n + 1, QVector<int>(m + 1, 0));
+    // back: 0 = skip-left, 1 = skip-right, 2 = pair
+
+    for (int i = 0; i <= n; ++i) {
+        for (int j = 0; j <= m; ++j) {
+            if (i == 0 && j == 0) continue;
+            double best = -1.0;
+            int b = 0;
+            if (i > 0) {
+                best = score[i - 1][j];
+                b = 0;
+            }
+            if (j > 0 && score[i][j - 1] > best) {
+                best = score[i][j - 1];
+                b = 1;
+            }
+            if (i > 0 && j > 0) {
+                const double s = similarity(left[i - 1], right[j - 1]);
+                if (s >= kSimilarityThreshold) {
+                    const double pairScore = score[i - 1][j - 1] + s;
+                    if (pairScore > best) {
+                        best = pairScore;
+                        b = 2;
+                    }
+                }
+            }
+            score[i][j] = best;
+            back[i][j] = b;
+        }
+    }
+
+    QVector<AlignmentPair> rev;
+    int i = n;
+    int j = m;
+    while (i > 0 || j > 0) {
+        const int b = (i > 0 && j > 0) ? back[i][j] : (i > 0 ? 0 : 1);
+        if (b == 2) {
+            rev.append({i - 1, j - 1});
+            --i;
+            --j;
+        } else if (b == 0) {
+            rev.append({i - 1, -1});
+            --i;
+        } else {
+            rev.append({-1, j - 1});
+            --j;
+        }
+    }
+    QVector<AlignmentPair> out;
+    out.reserve(rev.size());
+    for (int k = rev.size() - 1; k >= 0; --k) out.append(rev[k]);
     return out;
 }
 

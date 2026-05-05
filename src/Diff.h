@@ -35,4 +35,17 @@ struct LineDiff {
 
 LineDiff lineDiff(const QString& left, const QString& right, Options opts = {});
 
+// 0..1 word-Jaccard similarity (used for smart alignment within change blocks).
+double similarity(const QString& a, const QString& b);
+
+struct AlignmentPair {
+    int leftIdx;   // -1 if unpaired
+    int rightIdx;  // -1 if unpaired
+};
+
+// Order-preserving best alignment of two short line lists. Pairs with
+// similarity below a threshold are dropped so unrelated lines stay
+// unpaired.
+QVector<AlignmentPair> alignBlock(const QStringList& left, const QStringList& right);
+
 }  // namespace Diff

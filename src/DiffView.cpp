@@ -166,54 +166,81 @@ static AlignedBuildResult buildAlignedRows(
 
         DiffView::Block block;
         block.rowStart = leftRows.size();
-        block.leftStart = hasDel ? leftMap[del.leftStart] : (del.leftStart < leftMap.size() ? leftMap[del.leftStart] : left.size());
         block.leftCount = hasDel ? del.leftCount : 0;
-        if (hasDel && del.leftStart < leftMap.size()) {
-            // Translate count: filtered count back to original-line span.
+        block.rightCount = hasIns ? ins.rightCount : 0;
+        if (hasDel) {
             const int firstOrig = leftMap[del.leftStart];
             const int lastOrig = leftMap[del.leftStart + del.leftCount - 1];
             block.leftStart = firstOrig;
             block.leftCount = lastOrig - firstOrig + 1;
-        } else if (!hasDel) {
-            // Pure insert: figure out where in left the insert falls.
+        } else {
             block.leftStart = ins.leftStart < leftMap.size()
                                   ? leftMap[ins.leftStart]
                                   : left.size();
             block.leftCount = 0;
         }
-        if (hasIns && ins.rightStart < rightMap.size()) {
+        if (hasIns) {
             const int firstOrig = rightMap[ins.rightStart];
             const int lastOrig = rightMap[ins.rightStart + ins.rightCount - 1];
             block.rightStart = firstOrig;
             block.rightCount = lastOrig - firstOrig + 1;
-        } else if (!hasIns) {
+        } else {
             block.rightStart = del.rightStart < rightMap.size()
                                    ? rightMap[del.rightStart]
                                    : right.size();
             block.rightCount = 0;
-        } else {
-            block.rightStart = right.size();
-            block.rightCount = 0;
         }
-        const int rows = qMax(hasDel ? del.leftCount : 0, hasIns ? ins.rightCount : 0);
-        for (int k = 0; k < rows; ++k) {
-            const bool leftReal = hasDel && k < del.leftCount;
-            const bool rightReal = hasIns && k < ins.rightCount;
 
-            DiffRow lr, rr;
-            if (leftReal) {
+        // Build line lists (in original-line order) for the alignment pass.
+        QStringList leftBlock;
+        QStringList rightBlock;
+        QVector<int> leftBlockOrigIdx;
+        QVector<int> rightBlockOrigIdx;
+        if (hasDel) {
+            for (int k = 0; k < del.leftCount; ++k) {
                 const int li = leftMap[del.leftStart + k];
-                lr = {li, left[li], Diff::Op::Delete, false, {}};
-            } else {
-                lr = {-1, QString(), Diff::Op::Delete, true, {}};
+                leftBlock.append(left[li]);
+                leftBlockOrigIdx.append(li);
             }
-            if (rightReal) {
+        }
+        if (hasIns) {
+            for (int k = 0; k < ins.rightCount; ++k) {
                 const int ri = rightMap[ins.rightStart + k];
-                rr = {ri, right[ri], Diff::Op::Insert, false, {}};
-            } else {
-                rr = {-1, QString(), Diff::Op::Insert, true, {}};
+                rightBlock.append(right[ri]);
+                rightBlockOrigIdx.append(ri);
             }
-            if (leftReal && rightReal) {
+        }
+
+        QVector<Diff::AlignmentPair> pairs;
+        if (hasDel && hasIns) {
+            pairs = Diff::alignBlock(leftBlock, rightBlock);
+        } else {
+            for (int k = 0; k < leftBlock.size(); ++k) pairs.append({k, -1});
+            for (int k = 0; k < rightBlock.size(); ++k) pairs.append({-1, k});
+        }
+
+        for (const auto& p : pairs) {
+            DiffRow lr;
+            DiffRow rr;
+            if (p.leftIdx >= 0) {
+                const int li = leftBlockOrigIdx[p.leftIdx];
+                lr = {li, leftBlock[p.leftIdx], Diff::Op::Delete, false, {}, false};
+            } else {
+                lr = {-1, QString(), Diff::Op::Delete, true, {}, false};
+            }
+            if (p.rightIdx >= 0) {
+                const int ri = rightBlockOrigIdx[p.rightIdx];
+                rr = {ri, rightBlock[p.rightIdx], Diff::Op::Insert, false, {}, false};
+            } else {
+                rr = {-1, QString(), Diff::Op::Insert, true, {}, false};
+            }
+            if (p.leftIdx >= 0) {
+                lr.recentlyCopied = inRange(lr.sourceLine, highlight.leftStart, highlight.leftCount);
+            }
+            if (p.rightIdx >= 0) {
+                rr.recentlyCopied = inRange(rr.sourceLine, highlight.rightStart, highlight.rightCount);
+            }
+            if (p.leftIdx >= 0 && p.rightIdx >= 0) {
                 const auto ld = Diff::lineDiff(lr.text, rr.text, diffOpts);
                 lr.segments = ld.left;
                 rr.segments = ld.right;
