@@ -267,7 +267,7 @@ void DiffPane::wheelEvent(QWheelEvent* event) {
 }
 
 int DiffPane::arrowZoneLeft() const {
-    return m_lineNumberArea->width() - kArrowWidth - 4;
+    return 4;
 }
 
 void DiffPane::setRowPartial(int row, bool selected, bool neutral) {
@@ -307,7 +307,7 @@ void DiffPane::clearAllPartial() {
 
 void DiffPane::lineNumberAreaMousePressEvent(QMouseEvent* event) {
     const int x = event->position().x();
-    const bool inArrow = x >= arrowZoneLeft() - 2;
+    const bool inArrow = x < arrowZoneLeft() + kArrowWidth + 2;
 
     QTextBlock block = firstVisibleBlock();
     int blockNumber = block.blockNumber();
@@ -346,7 +346,8 @@ void DiffPane::lineNumberAreaPaintEvent(QPaintEvent* event) {
     int bottom = top + qRound(blockBoundingRect(block).height());
 
     const QPen numberPen(palette().color(QPalette::WindowText).lighter(150));
-    const int numWidth = m_lineNumberArea->width() - kArrowWidth - kArrowPad;
+    const int numX = arrowZoneLeft() + kArrowWidth + kArrowPad;
+    const int numWidth = m_lineNumberArea->width() - numX;
 
     while (block.isValid() && top <= event->rect().bottom()) {
         if (block.isVisible() && bottom >= event->rect().top()) {
@@ -376,7 +377,7 @@ void DiffPane::lineNumberAreaPaintEvent(QPaintEvent* event) {
                 num = QString::number(blockNumber + 1);
             }
             painter.setPen(numberPen);
-            painter.drawText(0, top, numWidth - 4, fontMetrics().height(),
+            painter.drawText(numX, top, numWidth - 4, fontMetrics().height(),
                              Qt::AlignRight, num);
 
             if (blockNumber < m_rows.size() && m_rows[blockNumber].recentlyCopied) {
