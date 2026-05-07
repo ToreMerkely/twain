@@ -1,13 +1,18 @@
 #include "DiffView.h"
 
 #include <QFile>
+#include <QFont>
+#include <QFontMetrics>
 #include <QHBoxLayout>
+#include <QPlainTextEdit>
 #include <QScrollBar>
 #include <QSplitter>
 #include <QTextBlock>
 #include <QTextCursor>
 #include <QTextDocument>
+#include <QTextEdit>
 #include <QTextStream>
+#include <QVBoxLayout>
 #include <algorithm>
 
 #include "Diff.h"
@@ -23,9 +28,36 @@ DiffView::DiffView(QWidget* parent) : QWidget(parent) {
     m_splitter->addWidget(m_right);
     m_splitter->setSizes({1, 1});
 
-    auto* layout = new QHBoxLayout(this);
+    QFont monoFont("JetBrains Mono", 10);
+    monoFont.setStyleHint(QFont::Monospace);
+    const int oneLineHeight = QFontMetrics(monoFont).height() + 4;
+    auto makeLineWidget = [&]() {
+        auto* w = new QPlainTextEdit(this);
+        w->setReadOnly(true);
+        w->setFont(monoFont);
+        w->setFocusPolicy(Qt::NoFocus);
+        w->setLineWrapMode(QPlainTextEdit::NoWrap);
+        w->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+        w->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+        w->setFixedHeight(oneLineHeight);
+        w->setFrameStyle(QFrame::NoFrame);
+        return w;
+    };
+    m_currentLeftLine = makeLineWidget();
+    m_currentRightLine = makeLineWidget();
+
+    auto* bottom = new QWidget(this);
+    auto* bottomLayout = new QVBoxLayout(bottom);
+    bottomLayout->setContentsMargins(2, 2, 2, 2);
+    bottomLayout->setSpacing(0);
+    bottomLayout->addWidget(m_currentLeftLine);
+    bottomLayout->addWidget(m_currentRightLine);
+
+    auto* layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
-    layout->addWidget(m_splitter);
+    layout->setSpacing(0);
+    layout->addWidget(m_splitter, 1);
+    layout->addWidget(bottom, 0);
 
     connect(m_left->verticalScrollBar(), &QScrollBar::valueChanged, this,
             [this](int v) { syncScroll(m_left, m_right, v); });
@@ -55,6 +87,10 @@ DiffView::DiffView(QWidget* parent) : QWidget(parent) {
             [this](int row, bool shift) { onLineNumberClicked(/*fromLeftPane=*/false, row, shift); });
     connect(m_left, &DiffPane::clearPartialRequested, this, &DiffView::clearPartialSelection);
     connect(m_right, &DiffPane::clearPartialRequested, this, &DiffView::clearPartialSelection);
+    connect(m_left, &QPlainTextEdit::cursorPositionChanged, this,
+            [this]() { updateCurrentLineDisplay(m_left); });
+    connect(m_right, &QPlainTextEdit::cursorPositionChanged, this,
+            [this]() { updateCurrentLineDisplay(m_right); });
     connect(m_left, &DiffPane::contentEdited, this, [this]() {
         m_leftLines = m_left->extractContent();
         setDirty(true);
@@ -409,6 +445,48 @@ int DiffView::blockIndexAtRow(int row) const {
         if (row >= b.rowStart && row < b.rowEnd) return i;
     }
     return -1;
+}
+
+void DiffView::updateCurrentLineDisplay(DiffPane* source) {
+    const int row = source->textCursor().blockNumber();
+    if (row < 0) {
+        m_currentLeftLine->clear();
+        m_currentRightLine->clear();
+        return;
+    }
+    const QString lt = m_left->document()->findBlockByNumber(row).text();
+    const QString rt = m_right->document()->findBlockByNumber(row).text();
+    m_currentLeftLine->setPlainText(lt);
+    m_currentRightLine->setPlainText(rt);
+
+    Diff::Options opts;
+    opts.ignoreCase = m_options.ignoreCase;
+    opts.ignoreWhitespace = m_options.ignoreWhitespace;
+    const auto ld = Diff::lineDiff(lt, rt, opts);
+
+    auto applySegs = [](QPlainTextEdit* pte, const QVector<Diff::LineSegment>& segs) {
+        QList<QTextEdit::ExtraSelection> sels;
+        QTextBlock blk = pte->document()->firstBlock();
+        if (!blk.isValid()) {
+            pte->setExtraSelections(sels);
+            return;
+        }
+        for (const auto& s : segs) {
+            if (!s.differ) continue;
+            QTextEdit::ExtraSelection sel;
+            sel.format.setBackground(QColor(255, 150, 150));
+            QTextCursor c(blk);
+            const int start = blk.position() + s.start;
+            const int end = start + s.length;
+            c.setPosition(start);
+            c.setPosition(end, QTextCursor::KeepAnchor);
+            sel.cursor = c;
+            sels.append(sel);
+        }
+        pte->setExtraSelections(sels);
+    };
+    applySegs(m_currentLeftLine, ld.left);
+    applySegs(m_currentRightLine, ld.right);
 }
 
 void DiffView::clearPartialSelection() {

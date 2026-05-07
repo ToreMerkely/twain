@@ -9,6 +9,7 @@
 #include <QWidget>
 
 class DiffPane;
+class QPlainTextEdit;
 class QSplitter;
 
 class DiffView : public QWidget {
@@ -58,6 +59,8 @@ private:
     QSplitter* m_splitter;
     DiffPane* m_left;
     DiffPane* m_right;
+    QPlainTextEdit* m_currentLeftLine = nullptr;
+    QPlainTextEdit* m_currentRightLine = nullptr;
     bool m_syncing = false;
 
     QStringList m_leftLines;
@@ -88,6 +91,7 @@ private:
     void onLineNumberClicked(bool fromLeftPane, int row, bool shift);
     void clearPartialSelection();
     void applyPartialVisuals();
+    void updateCurrentLineDisplay(DiffPane* source);
     void setDirty(bool d);
 
     void syncScroll(DiffPane* source, DiffPane* target, int value);
