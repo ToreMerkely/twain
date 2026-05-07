@@ -17,6 +17,7 @@
 #include <algorithm>
 
 #include "Diff.h"
+#include "DiffOverview.h"
 #include "DiffPane.h"
 
 DiffView::DiffView(QWidget* parent) : QWidget(parent) {
@@ -74,11 +75,31 @@ DiffView::DiffView(QWidget* parent) : QWidget(parent) {
     bottomLayout->addWidget(m_currentLeftLine);
     bottomLayout->addWidget(m_currentRightLine);
 
+    m_overview = new DiffOverview(this);
+
+    auto* mid = new QWidget(this);
+    auto* midLayout = new QHBoxLayout(mid);
+    midLayout->setContentsMargins(0, 0, 0, 0);
+    midLayout->setSpacing(0);
+    midLayout->addWidget(m_overview, 0);
+    midLayout->addWidget(m_splitter, 1);
+
     auto* layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(0);
-    layout->addWidget(m_splitter, 1);
+    layout->addWidget(mid, 1);
     layout->addWidget(bottom, 0);
+
+    connect(m_overview, &DiffOverview::scrollRequested, this, [this](int top) {
+        m_syncing = true;
+        m_left->verticalScrollBar()->setValue(top);
+        m_right->verticalScrollBar()->setValue(top);
+        m_syncing = false;
+        // Re-emit so overview viewport box updates immediately.
+        const int lineH = m_left->fontMetrics().lineSpacing();
+        const int visibleLines = lineH > 0 ? m_left->viewport()->height() / lineH : 0;
+        m_overview->setViewport(m_left->verticalScrollBar()->value(), visibleLines);
+    });
 
     connect(m_left->verticalScrollBar(), &QScrollBar::valueChanged, this,
             [this](int v) { syncScroll(m_left, m_right, v); });
@@ -134,7 +155,11 @@ void DiffView::syncScroll(DiffPane* source, DiffPane* target, int value) {
     m_syncing = true;
     target->verticalScrollBar()->setValue(value);
     m_syncing = false;
-    Q_UNUSED(source);
+    if (m_overview) {
+        const int lineH = source->fontMetrics().lineSpacing();
+        const int visibleLines = lineH > 0 ? source->viewport()->height() / lineH : 0;
+        m_overview->setViewport(value, visibleLines);
+    }
 }
 
 static bool looksBinary(const QByteArray& bytes) {
@@ -431,6 +456,17 @@ void DiffView::rebuildView() {
     m_diffBlocks = res.blocks;
     m_left->setRows(leftRows);
     m_right->setRows(rightRows);
+
+    if (m_overview) {
+        QVector<DiffOverview::Mark> marks;
+        marks.reserve(m_diffBlocks.size());
+        for (const auto& b : m_diffBlocks) marks.append({b.rowStart, b.rowEnd});
+        m_overview->setTotalRows(leftRows.size());
+        m_overview->setMarks(marks);
+        const int lineH = m_left->fontMetrics().lineSpacing();
+        const int visibleLines = lineH > 0 ? m_left->viewport()->height() / lineH : 0;
+        m_overview->setViewport(m_left->verticalScrollBar()->value(), visibleLines);
+    }
 }
 
 void DiffView::setOptions(Options opts) {
@@ -459,7 +495,10 @@ void DiffView::goToDiff(int index) {
 
     QTextCursor cursor(m_left->document()->findBlockByNumber(row));
     m_left->setTextCursor(cursor);
-    m_left->centerCursor();
+    const int lineH = m_left->fontMetrics().lineSpacing();
+    const int visibleLines = lineH > 0 ? m_left->viewport()->height() / lineH : 0;
+    const int topLine = std::max(0, row - visibleLines / 4);
+    m_left->verticalScrollBar()->setValue(topLine);
     m_left->setFocus();
     m_syncing = true;
     m_right->verticalScrollBar()->setValue(m_left->verticalScrollBar()->value());

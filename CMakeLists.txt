@@ -14,6 +14,7 @@ add_executable(twain
     src/main.cpp
     src/MainWindow.cpp
     src/DiffView.cpp
+    src/DiffOverview.cpp
     src/DiffPane.cpp
     src/Diff.cpp
     src/HighlighterFactory.cpp

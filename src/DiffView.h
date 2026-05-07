@@ -8,6 +8,7 @@
 #include <QVector>
 #include <QWidget>
 
+class DiffOverview;
 class DiffPane;
 class QLabel;
 class QPlainTextEdit;
@@ -60,6 +61,7 @@ private:
     QSplitter* m_splitter;
     DiffPane* m_left;
     DiffPane* m_right;
+    DiffOverview* m_overview = nullptr;
     QLabel* m_leftPathLabel = nullptr;
     QLabel* m_rightPathLabel = nullptr;
     QPlainTextEdit* m_currentLeftLine = nullptr;
