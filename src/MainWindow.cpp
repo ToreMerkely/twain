@@ -33,6 +33,12 @@ constexpr int kMaxRecent = 10;
 QString recentKey(const QString& prefix, int i, bool left) {
     return QString("%1/%2/%3").arg(prefix).arg(i).arg(left ? "left" : "right");
 }
+QString dirDisplayName(const QString& p) {
+    QString s = p;
+    while (s.size() > 1 && s.endsWith('/')) s.chop(1);
+    const QString name = QFileInfo(s).fileName();
+    return name.isEmpty() ? s : name;
+}
 }  // namespace
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
@@ -540,8 +546,8 @@ TreeCompareView* MainWindow::createTreeTab(const QString& left, const QString& r
     if (s.contains("tree/splitter")) view->restoreSplitterState(s.value("tree/splitter").toByteArray());
     if (s.contains("tree/header")) view->restoreHeaderState(s.value("tree/header").toByteArray());
 
-    const QString l = QFileInfo(left).fileName();
-    const QString r = QFileInfo(right).fileName();
+    const QString l = dirDisplayName(left);
+    const QString r = dirDisplayName(right);
     const QString title = (l == r && !l.isEmpty()) ? l + "/" : QString("%1/ ⟷ %2/").arg(l, r);
     const int idx = m_tabs->addTab(view, title);
     m_tabs->setTabToolTip(idx, left + "\n" + right);
@@ -565,8 +571,8 @@ void MainWindow::updateTreeTabTitle(TreeCompareView* view) {
     if (idx < 0) return;
     const QString lp = view->property("leftPath").toString();
     const QString rp = view->property("rightPath").toString();
-    const QString l = QFileInfo(lp).fileName();
-    const QString r = QFileInfo(rp).fileName();
+    const QString l = dirDisplayName(lp);
+    const QString r = dirDisplayName(rp);
     const QString title = (l == r && !l.isEmpty()) ? l + "/" : QString("%1/ ⟷ %2/").arg(l, r);
     m_tabs->setTabText(idx, title);
     m_tabs->setTabToolTip(idx, lp + "\n" + rp);
@@ -629,7 +635,7 @@ void MainWindow::updateForCurrentTab() {
             }
         }
         setWindowTitle(QString("twain — %1/ ⟷ %2/")
-                           .arg(QFileInfo(lp).fileName(), QFileInfo(rp).fileName()));
+                           .arg(dirDisplayName(lp), dirDisplayName(rp)));
     } else {
         m_leftPathLabel->clear();
         m_rightPathLabel->clear();
