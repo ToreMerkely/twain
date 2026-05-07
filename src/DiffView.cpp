@@ -8,6 +8,7 @@
 #include <QTextCursor>
 #include <QTextDocument>
 #include <QTextStream>
+#include <algorithm>
 
 #include "Diff.h"
 #include "DiffPane.h"
@@ -30,10 +31,28 @@ DiffView::DiffView(QWidget* parent) : QWidget(parent) {
             [this](int v) { syncScroll(m_left, m_right, v); });
     connect(m_right->verticalScrollBar(), &QScrollBar::valueChanged, this,
             [this](int v) { syncScroll(m_right, m_left, v); });
+    connect(m_left->horizontalScrollBar(), &QScrollBar::valueChanged, this,
+            [this](int v) {
+                if (m_syncing) return;
+                m_syncing = true;
+                m_right->horizontalScrollBar()->setValue(v);
+                m_syncing = false;
+            });
+    connect(m_right->horizontalScrollBar(), &QScrollBar::valueChanged, this,
+            [this](int v) {
+                if (m_syncing) return;
+                m_syncing = true;
+                m_left->horizontalScrollBar()->setValue(v);
+                m_syncing = false;
+            });
     connect(m_left, &DiffPane::arrowClicked, this,
             [this](int row) { onArrowClicked(/*fromLeftPane=*/true, row); });
     connect(m_right, &DiffPane::arrowClicked, this,
             [this](int row) { onArrowClicked(/*fromLeftPane=*/false, row); });
+    connect(m_left, &DiffPane::lineNumberClicked, this,
+            [this](int row) { onLineNumberClicked(/*fromLeftPane=*/true, row); });
+    connect(m_right, &DiffPane::lineNumberClicked, this,
+            [this](int row) { onLineNumberClicked(/*fromLeftPane=*/false, row); });
     connect(m_left, &DiffPane::contentEdited, this, [this]() {
         m_leftLines = m_left->extractContent();
         setDirty(true);
@@ -313,6 +332,8 @@ bool DiffView::setFiles(const QString& leftPath, const QString& rightPath, QStri
 }
 
 void DiffView::rebuildView() {
+    m_partialBlockIdx = -1;
+    m_partialRows.clear();
     Diff::Options diffOpts;
     diffOpts.ignoreCase = m_options.ignoreCase;
     diffOpts.ignoreWhitespace = m_options.ignoreWhitespace;
@@ -387,10 +408,60 @@ int DiffView::blockIndexAtRow(int row) const {
     return -1;
 }
 
+void DiffView::clearPartialSelection() {
+    m_partialBlockIdx = -1;
+    m_partialRows.clear();
+    m_left->clearAllPartial();
+    m_right->clearAllPartial();
+}
+
+void DiffView::applyPartialVisuals() {
+    m_left->clearAllPartial();
+    m_right->clearAllPartial();
+    if (m_partialBlockIdx < 0 || m_partialRows.isEmpty()) return;
+    const Block& b = m_diffBlocks[m_partialBlockIdx];
+    DiffPane* sourcePane = m_partialFromLeftPane ? m_left : m_right;
+    DiffPane* otherPane = m_partialFromLeftPane ? m_right : m_left;
+    for (int r = b.rowStart; r < b.rowEnd; ++r) {
+        const bool sel = m_partialRows.contains(r);
+        sourcePane->setRowPartial(r, /*selected=*/sel, /*neutral=*/!sel);
+        otherPane->setRowPartial(r, /*selected=*/false, /*neutral=*/true);
+    }
+}
+
+void DiffView::onLineNumberClicked(bool fromLeftPane, int row) {
+    const int idx = blockIndexAtRow(row);
+    if (idx < 0) {
+        clearPartialSelection();
+        return;
+    }
+    const bool blockChanged =
+        m_partialBlockIdx != idx || m_partialFromLeftPane != fromLeftPane;
+    if (blockChanged) {
+        m_partialBlockIdx = idx;
+        m_partialFromLeftPane = fromLeftPane;
+        m_partialRows.clear();
+    }
+    if (m_partialRows.contains(row)) {
+        m_partialRows.remove(row);
+    } else {
+        m_partialRows.insert(row);
+    }
+    if (m_partialRows.isEmpty()) {
+        clearPartialSelection();
+    } else {
+        applyPartialVisuals();
+    }
+}
+
 void DiffView::onArrowClicked(bool fromLeftPane, int row) {
     const int idx = blockIndexAtRow(row);
     if (idx < 0) return;
     const Block b = m_diffBlocks[idx];
+
+    const bool partialMode = m_partialBlockIdx == idx &&
+                             m_partialFromLeftPane == fromLeftPane &&
+                             !m_partialRows.isEmpty();
 
     // Snapshot for arrow-undo before mutating.
     m_arrowUndoStack.push({m_leftLines, m_rightLines});
@@ -401,7 +472,30 @@ void DiffView::onArrowClicked(bool fromLeftPane, int row) {
     m_highlightRightStart = -1;
     m_highlightRightCount = 0;
 
-    if (fromLeftPane) {
+    if (partialMode) {
+        DiffPane* srcPane = fromLeftPane ? m_left : m_right;
+        QList<int> rows = m_partialRows.values();
+        std::sort(rows.begin(), rows.end());
+        QStringList toCopy;
+        const QStringList& srcList = fromLeftPane ? m_leftLines : m_rightLines;
+        for (int r : rows) {
+            const int sl = srcPane->sourceLineAtRow(r);
+            if (sl >= 0 && sl < srcList.size()) toCopy.append(srcList[sl]);
+        }
+        if (fromLeftPane) {
+            for (int i = toCopy.size() - 1; i >= 0; --i)
+                m_rightLines.insert(b.rightStart, toCopy[i]);
+            m_highlightRightStart = b.rightStart;
+            m_highlightRightCount = toCopy.size();
+        } else {
+            for (int i = toCopy.size() - 1; i >= 0; --i)
+                m_leftLines.insert(b.leftStart, toCopy[i]);
+            m_highlightLeftStart = b.leftStart;
+            m_highlightLeftCount = toCopy.size();
+        }
+        m_partialBlockIdx = -1;
+        m_partialRows.clear();
+    } else if (fromLeftPane) {
         QStringList src;
         for (int i = 0; i < b.leftCount; ++i) src.append(m_leftLines[b.leftStart + i]);
         for (int i = 0; i < b.rightCount; ++i) m_rightLines.removeAt(b.rightStart);

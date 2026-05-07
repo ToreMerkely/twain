@@ -8,6 +8,7 @@
 class QPaintEvent;
 class QResizeEvent;
 class QSyntaxHighlighter;
+class QWheelEvent;
 
 struct DiffRow {
     int sourceLine;   // -1 for filler
@@ -16,6 +17,8 @@ struct DiffRow {
     bool filler;
     QVector<Diff::LineSegment> segments;  // intra-line highlighting; empty if not paired
     bool recentlyCopied = false;
+    bool partialSelected = false;  // user picked this row for single/multi-line copy
+    bool partialNeutral = false;   // row is in a partial-selected block but not picked
 };
 
 class DiffPane : public QPlainTextEdit {
@@ -42,12 +45,19 @@ public:
     int lineNumberAreaWidth() const;
     int arrowZoneLeft() const;
 
+    void setRowPartial(int row, bool selected, bool neutral);
+    void clearAllPartial();
+    int sourceLineAtRow(int row) const;
+    bool isRowFiller(int row) const;
+
 signals:
     void arrowClicked(int row);
+    void lineNumberClicked(int row);
     void contentEdited();
 
 protected:
     void resizeEvent(QResizeEvent* event) override;
+    void wheelEvent(QWheelEvent* event) override;
 
 private slots:
     void updateLineNumberAreaWidth();

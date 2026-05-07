@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QByteArray>
+#include <QSet>
 #include <QStack>
 #include <QString>
 #include <QStringList>
@@ -76,8 +77,16 @@ private:
     QString m_rightPath;
     Options m_options;
     bool m_dirty = false;
+
+    int m_partialBlockIdx = -1;
+    bool m_partialFromLeftPane = true;
+    QSet<int> m_partialRows;
+
     void rebuildView();
     void onArrowClicked(bool fromLeftPane, int row);
+    void onLineNumberClicked(bool fromLeftPane, int row);
+    void clearPartialSelection();
+    void applyPartialVisuals();
     void setDirty(bool d);
 
     void syncScroll(DiffPane* source, DiffPane* target, int value);

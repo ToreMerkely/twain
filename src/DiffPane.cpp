@@ -10,7 +10,9 @@
 #include <QPaintEvent>
 #include <QPainter>
 #include <QResizeEvent>
+#include <QScrollBar>
 #include <QTextBlock>
+#include <QWheelEvent>
 #include <QTextCharFormat>
 #include <QTextCursor>
 
@@ -44,6 +46,9 @@ QColor segmentColor() { return QColor(255, 150, 150); }
 QColor arrowColor() { return QColor(255, 195, 50); }
 QColor arrowEdgeColor() { return QColor(180, 120, 0); }
 QColor bracketColor() { return QColor(60, 60, 60); }
+QColor partialBgColor() { return QColor(200, 220, 255); }
+QColor partialArrowColor() { return QColor(60, 130, 255); }
+QColor partialArrowEdgeColor() { return QColor(20, 70, 160); }
 constexpr int kArrowWidth = 12;
 constexpr int kArrowHeight = 12;
 constexpr int kArrowPad = 6;
@@ -172,7 +177,16 @@ void DiffPane::applyRowBackgrounds() {
         QTextBlock block = doc->findBlockByNumber(i);
         if (!block.isValid()) continue;
 
-        if (r.kind != Diff::Op::Equal || r.filler) {
+        if (r.partialSelected) {
+            QTextEdit::ExtraSelection sel;
+            sel.format.setBackground(partialBgColor());
+            sel.format.setProperty(QTextFormat::FullWidthSelection, true);
+            sel.cursor = QTextCursor(block);
+            sel.cursor.clearSelection();
+            selections.append(sel);
+        } else if (r.partialNeutral) {
+            // Suppress the normal red/gray background.
+        } else if (r.kind != Diff::Op::Equal || r.filler) {
             QTextEdit::ExtraSelection sel;
             sel.format.setBackground(colorFor(r.kind, r.filler));
             sel.format.setProperty(QTextFormat::FullWidthSelection, true);
@@ -181,6 +195,7 @@ void DiffPane::applyRowBackgrounds() {
             selections.append(sel);
         }
 
+        if (r.partialSelected || r.partialNeutral) continue;
         for (const auto& seg : r.segments) {
             if (!seg.differ) continue;
             QTextEdit::ExtraSelection ssel;
@@ -230,13 +245,69 @@ void DiffPane::resizeEvent(QResizeEvent* event) {
     m_lineNumberArea->setGeometry(QRect(cr.left(), cr.top(), lineNumberAreaWidth(), cr.height()));
 }
 
+void DiffPane::wheelEvent(QWheelEvent* event) {
+    if (event->modifiers() & Qt::ShiftModifier) {
+        QScrollBar* hbar = horizontalScrollBar();
+        const QPoint pixels = event->pixelDelta();
+        const QPoint angle = event->angleDelta();
+        int delta = 0;
+        if (!pixels.isNull()) {
+            delta = pixels.x() != 0 ? pixels.x() : pixels.y();
+        } else if (!angle.isNull()) {
+            const int a = angle.x() != 0 ? angle.x() : angle.y();
+            delta = a * hbar->singleStep() / 120;
+        }
+        if (delta != 0) {
+            hbar->setValue(hbar->value() - delta);
+            event->accept();
+            return;
+        }
+    }
+    QPlainTextEdit::wheelEvent(event);
+}
+
 int DiffPane::arrowZoneLeft() const {
     return m_lineNumberArea->width() - kArrowWidth - 4;
 }
 
+void DiffPane::setRowPartial(int row, bool selected, bool neutral) {
+    if (row < 0 || row >= m_rows.size()) return;
+    auto& r = m_rows[row];
+    if (r.partialSelected == selected && r.partialNeutral == neutral) return;
+    r.partialSelected = selected;
+    r.partialNeutral = neutral;
+    applyRowBackgrounds();
+    m_lineNumberArea->update();
+}
+
+int DiffPane::sourceLineAtRow(int row) const {
+    if (row < 0 || row >= m_rows.size()) return -1;
+    return m_rows[row].sourceLine;
+}
+
+bool DiffPane::isRowFiller(int row) const {
+    if (row < 0 || row >= m_rows.size()) return false;
+    return m_rows[row].filler;
+}
+
+void DiffPane::clearAllPartial() {
+    bool changed = false;
+    for (auto& r : m_rows) {
+        if (r.partialSelected || r.partialNeutral) {
+            r.partialSelected = false;
+            r.partialNeutral = false;
+            changed = true;
+        }
+    }
+    if (changed) {
+        applyRowBackgrounds();
+        m_lineNumberArea->update();
+    }
+}
+
 void DiffPane::lineNumberAreaMousePressEvent(QMouseEvent* event) {
     const int x = event->position().x();
-    if (x < arrowZoneLeft() - 2) return;  // not in arrow column
+    const bool inArrow = x >= arrowZoneLeft() - 2;
 
     QTextBlock block = firstVisibleBlock();
     int blockNumber = block.blockNumber();
@@ -248,8 +319,12 @@ void DiffPane::lineNumberAreaMousePressEvent(QMouseEvent* event) {
         if (y >= top && y < bottom) {
             if (blockNumber < m_rows.size()) {
                 const auto& r = m_rows[blockNumber];
-                if (r.kind != Diff::Op::Equal) {
-                    emit arrowClicked(blockNumber);
+                if (inArrow) {
+                    if (r.kind != Diff::Op::Equal || r.partialSelected) {
+                        emit arrowClicked(blockNumber);
+                    }
+                } else if (!r.filler) {
+                    emit lineNumberClicked(blockNumber);
                 }
             }
             return;
@@ -279,17 +354,23 @@ void DiffPane::lineNumberAreaPaintEvent(QPaintEvent* event) {
             bool inBlock = false;
             bool isStart = false;
             bool isEnd = false;
+            bool partialSel = false;
+            bool partialNeu = false;
             if (blockNumber < m_rows.size()) {
                 const auto& r = m_rows[blockNumber];
                 if (r.sourceLine >= 0) num = QString::number(r.sourceLine + 1);
-                inBlock = (r.kind != Diff::Op::Equal);
+                partialSel = r.partialSelected;
+                partialNeu = r.partialNeutral;
+                inBlock = (r.kind != Diff::Op::Equal) && !partialSel && !partialNeu;
                 if (inBlock) {
-                    const bool prevEqual = blockNumber == 0 ||
-                                           m_rows[blockNumber - 1].kind == Diff::Op::Equal;
-                    const bool nextEqual = blockNumber + 1 >= m_rows.size() ||
-                                           m_rows[blockNumber + 1].kind == Diff::Op::Equal;
-                    isStart = prevEqual;
-                    isEnd = nextEqual;
+                    auto isInactive = [&](int idx) {
+                        if (idx < 0 || idx >= m_rows.size()) return true;
+                        const auto& rr = m_rows[idx];
+                        return rr.kind == Diff::Op::Equal || rr.partialSelected ||
+                               rr.partialNeutral;
+                    };
+                    isStart = isInactive(blockNumber - 1);
+                    isEnd = isInactive(blockNumber + 1);
                 }
             } else {
                 num = QString::number(blockNumber + 1);
@@ -304,6 +385,33 @@ void DiffPane::lineNumberAreaPaintEvent(QPaintEvent* event) {
                                      ? arrowZoneLeft() - 1
                                      : arrowZoneLeft() + kArrowWidth - 2;
                 painter.fillRect(QRect(barX, top, 3, rowHeight), arrowColor());
+            }
+
+            if (partialSel) {
+                const int rowHeight = qRound(blockBoundingRect(block).height());
+                const int lineX = (m_side == Side::Left)
+                                      ? arrowZoneLeft()
+                                      : arrowZoneLeft() + kArrowWidth - 1;
+                const int ay = top + (rowHeight - kArrowHeight) / 2;
+                const int amid = ay + kArrowHeight / 2;
+                QPolygon arrow;
+                if (m_side == Side::Left) {
+                    arrow << QPoint(lineX, ay)
+                          << QPoint(lineX + kArrowWidth, amid)
+                          << QPoint(lineX, ay + kArrowHeight)
+                          << QPoint(lineX + kArrowNotch, amid);
+                } else {
+                    arrow << QPoint(lineX, ay)
+                          << QPoint(lineX - kArrowWidth, amid)
+                          << QPoint(lineX, ay + kArrowHeight)
+                          << QPoint(lineX - kArrowNotch, amid);
+                }
+                painter.save();
+                painter.setRenderHint(QPainter::Antialiasing, true);
+                painter.setBrush(partialArrowColor());
+                painter.setPen(QPen(partialArrowEdgeColor(), 1));
+                painter.drawPolygon(arrow);
+                painter.restore();
             }
 
             if (inBlock) {
