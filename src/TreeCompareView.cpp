@@ -305,6 +305,8 @@ void TreeCompareView::recountWalk(const TreeCompare::Entry& entry) {
     for (const auto& c : entry.children) recountWalk(c);
 }
 
+void TreeCompareView::focusTree() { m_left->setFocus(); }
+
 QByteArray TreeCompareView::saveSplitterState() const { return m_splitter->saveState(); }
 void TreeCompareView::restoreSplitterState(const QByteArray& state) { m_splitter->restoreState(state); }
 QByteArray TreeCompareView::saveHeaderState() const { return m_left->header()->saveState(); }

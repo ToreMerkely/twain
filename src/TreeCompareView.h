@@ -36,6 +36,8 @@ public:
     QByteArray saveHeaderState() const;
     void restoreHeaderState(const QByteArray& state);
 
+    void focusTree();
+
 signals:
     void fileActivated(const QString& leftPath, const QString& rightPath);
     void comparisonUpdated();

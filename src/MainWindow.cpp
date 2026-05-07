@@ -413,7 +413,11 @@ void MainWindow::nextDifferentFile() {
         auto* t = qobject_cast<TreeCompareView*>(src);
         if (!t) return;
         const auto paths = t->nextDifferentFile(/*open=*/false);
-        if (paths.first.isEmpty() && paths.second.isEmpty()) return;
+        if (paths.first.isEmpty() && paths.second.isEmpty()) {
+            const int idx = m_tabs->indexOf(dv);
+            if (idx >= 0) onTabCloseRequested(idx);
+            return;
+        }
         QString error;
         if (!dv->setFiles(paths.first, paths.second, &error)) {
             QMessageBox::warning(this, "twain", error);
@@ -650,6 +654,7 @@ void MainWindow::updateForCurrentTab() {
 
 void MainWindow::onTabChanged(int /*index*/) {
     updateForCurrentTab();
+    if (auto* tv = currentTreeView()) tv->focusTree();
 }
 
 void MainWindow::onTabCloseRequested(int index) {
