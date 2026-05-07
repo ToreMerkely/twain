@@ -76,7 +76,7 @@ TreeCompareView::TreeCompareView(QWidget* parent) : QWidget(parent) {
         tv->setAlternatingRowColors(false);
         tv->setAllColumnsShowFocus(true);
         tv->setExpandsOnDoubleClick(false);
-        tv->header()->setStretchLastSection(true);
+        tv->header()->setStretchLastSection(false);
     }
     m_left->hideColumn(TreeCompareModel::kColRightName);
     m_left->hideColumn(TreeCompareModel::kColRightSize);
@@ -85,6 +85,19 @@ TreeCompareView::TreeCompareView(QWidget* parent) : QWidget(parent) {
     m_right->hideColumn(TreeCompareModel::kColLeftSize);
     m_right->hideColumn(TreeCompareModel::kColLeftMTime);
     m_right->setTreePosition(TreeCompareModel::kColRightName);
+
+    m_left->header()->setSectionResizeMode(TreeCompareModel::kColLeftName,
+                                           QHeaderView::Stretch);
+    m_left->header()->setSectionResizeMode(TreeCompareModel::kColLeftSize,
+                                           QHeaderView::ResizeToContents);
+    m_left->header()->setSectionResizeMode(TreeCompareModel::kColLeftMTime,
+                                           QHeaderView::ResizeToContents);
+    m_right->header()->setSectionResizeMode(TreeCompareModel::kColRightName,
+                                            QHeaderView::Stretch);
+    m_right->header()->setSectionResizeMode(TreeCompareModel::kColRightSize,
+                                            QHeaderView::ResizeToContents);
+    m_right->header()->setSectionResizeMode(TreeCompareModel::kColRightMTime,
+                                            QHeaderView::ResizeToContents);
 
     m_right->setSelectionModel(m_left->selectionModel());
 
@@ -297,10 +310,15 @@ void TreeCompareView::restoreSplitterState(const QByteArray& state) { m_splitter
 QByteArray TreeCompareView::saveHeaderState() const { return m_left->header()->saveState(); }
 void TreeCompareView::restoreHeaderState(const QByteArray& state) {
     m_left->header()->restoreState(state);
-    // Mirror left's visible-column widths onto the right tree's mirror columns.
+    // Re-apply our resize modes; restoreState above may carry old modes.
     QHeaderView* l = m_left->header();
     QHeaderView* r = m_right->header();
-    r->resizeSection(TreeCompareModel::kColRightName, l->sectionSize(TreeCompareModel::kColLeftName));
-    r->resizeSection(TreeCompareModel::kColRightSize, l->sectionSize(TreeCompareModel::kColLeftSize));
-    r->resizeSection(TreeCompareModel::kColRightMTime, l->sectionSize(TreeCompareModel::kColLeftMTime));
+    l->setStretchLastSection(false);
+    r->setStretchLastSection(false);
+    l->setSectionResizeMode(TreeCompareModel::kColLeftName, QHeaderView::Stretch);
+    l->setSectionResizeMode(TreeCompareModel::kColLeftSize, QHeaderView::ResizeToContents);
+    l->setSectionResizeMode(TreeCompareModel::kColLeftMTime, QHeaderView::ResizeToContents);
+    r->setSectionResizeMode(TreeCompareModel::kColRightName, QHeaderView::Stretch);
+    r->setSectionResizeMode(TreeCompareModel::kColRightSize, QHeaderView::ResizeToContents);
+    r->setSectionResizeMode(TreeCompareModel::kColRightMTime, QHeaderView::ResizeToContents);
 }
