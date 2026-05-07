@@ -4,6 +4,7 @@
 #include <QFont>
 #include <QFontMetrics>
 #include <QHBoxLayout>
+#include <QLabel>
 #include <QPlainTextEdit>
 #include <QScrollBar>
 #include <QSplitter>
@@ -24,8 +25,28 @@ DiffView::DiffView(QWidget* parent) : QWidget(parent) {
     m_right = new DiffPane(m_splitter);
     m_left->setSide(DiffPane::Side::Left);
     m_right->setSide(DiffPane::Side::Right);
-    m_splitter->addWidget(m_left);
-    m_splitter->addWidget(m_right);
+
+    auto makePaneContainer = [this](DiffPane* pane, QLabel** outLabel) {
+        auto* container = new QWidget(m_splitter);
+        auto* lay = new QVBoxLayout(container);
+        lay->setContentsMargins(0, 0, 0, 0);
+        lay->setSpacing(0);
+        auto* label = new QLabel(container);
+        label->setTextInteractionFlags(Qt::TextSelectableByMouse);
+        label->setContentsMargins(4, 2, 4, 2);
+        label->setTextFormat(Qt::PlainText);
+        QFont labelFont = label->font();
+        labelFont.setPointSizeF(labelFont.pointSizeF() * 1.3);
+        label->setFont(labelFont);
+        lay->addWidget(label);
+        lay->addWidget(pane, 1);
+        *outLabel = label;
+        return container;
+    };
+    QWidget* leftContainer = makePaneContainer(m_left, &m_leftPathLabel);
+    QWidget* rightContainer = makePaneContainer(m_right, &m_rightPathLabel);
+    m_splitter->addWidget(leftContainer);
+    m_splitter->addWidget(rightContainer);
     m_splitter->setSizes({1, 1});
 
     QFont monoFont("JetBrains Mono", 10);
@@ -359,6 +380,10 @@ bool DiffView::setFiles(const QString& leftPath, const QString& rightPath, QStri
     m_rightLines = rightLines;
     m_left->setLanguageFromPath(leftPath.isEmpty() ? rightPath : leftPath);
     m_right->setLanguageFromPath(rightPath.isEmpty() ? leftPath : rightPath);
+    m_leftPathLabel->setText(leftPath);
+    m_leftPathLabel->setToolTip(leftPath);
+    m_rightPathLabel->setText(rightPath);
+    m_rightPathLabel->setToolTip(rightPath);
 
     rebuildView();
     setDirty(false);

@@ -9,6 +9,7 @@
 #include <QWidget>
 
 class DiffPane;
+class QLabel;
 class QPlainTextEdit;
 class QSplitter;
 
@@ -59,6 +60,8 @@ private:
     QSplitter* m_splitter;
     DiffPane* m_left;
     DiffPane* m_right;
+    QLabel* m_leftPathLabel = nullptr;
+    QLabel* m_rightPathLabel = nullptr;
     QPlainTextEdit* m_currentLeftLine = nullptr;
     QPlainTextEdit* m_currentRightLine = nullptr;
     bool m_syncing = false;
