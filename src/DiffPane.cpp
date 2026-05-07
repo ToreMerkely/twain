@@ -245,6 +245,26 @@ void DiffPane::resizeEvent(QResizeEvent* event) {
     m_lineNumberArea->setGeometry(QRect(cr.left(), cr.top(), lineNumberAreaWidth(), cr.height()));
 }
 
+void DiffPane::keyPressEvent(QKeyEvent* event) {
+    if (event->key() == Qt::Key_Escape) {
+        bool hadPartial = false;
+        for (const auto& r : m_rows) {
+            if (r.partialSelected) { hadPartial = true; break; }
+        }
+        emit clearPartialRequested();
+        if (hadPartial) {
+            event->accept();
+            return;
+        }
+    }
+    QPlainTextEdit::keyPressEvent(event);
+}
+
+void DiffPane::mousePressEvent(QMouseEvent* event) {
+    emit clearPartialRequested();
+    QPlainTextEdit::mousePressEvent(event);
+}
+
 void DiffPane::wheelEvent(QWheelEvent* event) {
     if (event->modifiers() & Qt::ShiftModifier) {
         QScrollBar* hbar = horizontalScrollBar();
@@ -324,7 +344,8 @@ void DiffPane::lineNumberAreaMousePressEvent(QMouseEvent* event) {
                         emit arrowClicked(blockNumber);
                     }
                 } else if (!r.filler) {
-                    emit lineNumberClicked(blockNumber);
+                    const bool shift = event->modifiers() & Qt::ShiftModifier;
+                    emit lineNumberClicked(blockNumber, shift);
                 }
             }
             return;
@@ -389,29 +410,58 @@ void DiffPane::lineNumberAreaPaintEvent(QPaintEvent* event) {
             }
 
             if (partialSel) {
+                const bool prevSel = blockNumber > 0 &&
+                                     m_rows[blockNumber - 1].partialSelected;
+                const bool nextSel = blockNumber + 1 < m_rows.size() &&
+                                     m_rows[blockNumber + 1].partialSelected;
+                const bool partialStart = !prevSel;
+                const bool partialEnd = !nextSel;
+                const bool multi = !(partialStart && partialEnd);
+
                 const int rowHeight = qRound(blockBoundingRect(block).height());
                 const int lineX = (m_side == Side::Left)
                                       ? arrowZoneLeft()
                                       : arrowZoneLeft() + kArrowWidth - 1;
-                const int ay = top + (rowHeight - kArrowHeight) / 2;
-                const int amid = ay + kArrowHeight / 2;
-                QPolygon arrow;
-                if (m_side == Side::Left) {
-                    arrow << QPoint(lineX, ay)
-                          << QPoint(lineX + kArrowWidth, amid)
-                          << QPoint(lineX, ay + kArrowHeight)
-                          << QPoint(lineX + kArrowNotch, amid);
-                } else {
-                    arrow << QPoint(lineX, ay)
-                          << QPoint(lineX - kArrowWidth, amid)
-                          << QPoint(lineX, ay + kArrowHeight)
-                          << QPoint(lineX - kArrowNotch, amid);
-                }
                 painter.save();
                 painter.setRenderHint(QPainter::Antialiasing, true);
-                painter.setBrush(partialArrowColor());
-                painter.setPen(QPen(partialArrowEdgeColor(), 1));
-                painter.drawPolygon(arrow);
+
+                if (multi) {
+                    const QPen bluePen(partialArrowEdgeColor(), kBracketPenWidth,
+                                       Qt::SolidLine, Qt::FlatCap, Qt::MiterJoin);
+                    painter.setPen(bluePen);
+                    int lineTop = top;
+                    int lineBottom = top + rowHeight;
+                    if (partialStart)
+                        lineTop = top + (rowHeight + kArrowHeight) / 2;
+                    if (partialEnd) lineBottom = top + rowHeight - 1;
+                    painter.drawLine(lineX, lineTop, lineX, lineBottom);
+
+                    if (partialEnd) {
+                        const int capLen = kArrowWidth - 2;
+                        const int yEnd = top + rowHeight - 1;
+                        painter.drawLine(lineX, yEnd, lineX + capLen, yEnd);
+                    }
+                }
+
+                if (partialStart) {
+                    const int ay = top + (rowHeight - kArrowHeight) / 2;
+                    const int amid = ay + kArrowHeight / 2;
+                    QPolygon arrow;
+                    if (m_side == Side::Left) {
+                        arrow << QPoint(lineX, ay)
+                              << QPoint(lineX + kArrowWidth, amid)
+                              << QPoint(lineX, ay + kArrowHeight)
+                              << QPoint(lineX + kArrowNotch, amid);
+                    } else {
+                        arrow << QPoint(lineX, ay)
+                              << QPoint(lineX - kArrowWidth, amid)
+                              << QPoint(lineX, ay + kArrowHeight)
+                              << QPoint(lineX - kArrowNotch, amid);
+                    }
+                    painter.setBrush(partialArrowColor());
+                    painter.setPen(QPen(partialArrowEdgeColor(), 1));
+                    painter.drawPolygon(arrow);
+                }
                 painter.restore();
             }
 

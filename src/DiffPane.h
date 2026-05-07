@@ -52,12 +52,15 @@ public:
 
 signals:
     void arrowClicked(int row);
-    void lineNumberClicked(int row);
+    void lineNumberClicked(int row, bool shift);
+    void clearPartialRequested();
     void contentEdited();
 
 protected:
     void resizeEvent(QResizeEvent* event) override;
     void wheelEvent(QWheelEvent* event) override;
+    void keyPressEvent(QKeyEvent* event) override;
+    void mousePressEvent(QMouseEvent* event) override;
 
 private slots:
     void updateLineNumberAreaWidth();

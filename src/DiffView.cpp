@@ -50,9 +50,11 @@ DiffView::DiffView(QWidget* parent) : QWidget(parent) {
     connect(m_right, &DiffPane::arrowClicked, this,
             [this](int row) { onArrowClicked(/*fromLeftPane=*/false, row); });
     connect(m_left, &DiffPane::lineNumberClicked, this,
-            [this](int row) { onLineNumberClicked(/*fromLeftPane=*/true, row); });
+            [this](int row, bool shift) { onLineNumberClicked(/*fromLeftPane=*/true, row, shift); });
     connect(m_right, &DiffPane::lineNumberClicked, this,
-            [this](int row) { onLineNumberClicked(/*fromLeftPane=*/false, row); });
+            [this](int row, bool shift) { onLineNumberClicked(/*fromLeftPane=*/false, row, shift); });
+    connect(m_left, &DiffPane::clearPartialRequested, this, &DiffView::clearPartialSelection);
+    connect(m_right, &DiffPane::clearPartialRequested, this, &DiffView::clearPartialSelection);
     connect(m_left, &DiffPane::contentEdited, this, [this]() {
         m_leftLines = m_left->extractContent();
         setDirty(true);
@@ -334,6 +336,7 @@ bool DiffView::setFiles(const QString& leftPath, const QString& rightPath, QStri
 void DiffView::rebuildView() {
     m_partialBlockIdx = -1;
     m_partialRows.clear();
+    m_partialAnchorRow = -1;
     Diff::Options diffOpts;
     diffOpts.ignoreCase = m_options.ignoreCase;
     diffOpts.ignoreWhitespace = m_options.ignoreWhitespace;
@@ -411,6 +414,7 @@ int DiffView::blockIndexAtRow(int row) const {
 void DiffView::clearPartialSelection() {
     m_partialBlockIdx = -1;
     m_partialRows.clear();
+    m_partialAnchorRow = -1;
     m_left->clearAllPartial();
     m_right->clearAllPartial();
 }
@@ -429,29 +433,37 @@ void DiffView::applyPartialVisuals() {
     }
 }
 
-void DiffView::onLineNumberClicked(bool fromLeftPane, int row) {
+void DiffView::onLineNumberClicked(bool fromLeftPane, int row, bool shift) {
     const int idx = blockIndexAtRow(row);
     if (idx < 0) {
         clearPartialSelection();
         return;
     }
-    const bool blockChanged =
-        m_partialBlockIdx != idx || m_partialFromLeftPane != fromLeftPane;
-    if (blockChanged) {
-        m_partialBlockIdx = idx;
-        m_partialFromLeftPane = fromLeftPane;
+    if (shift && m_partialBlockIdx == idx && m_partialFromLeftPane == fromLeftPane &&
+        m_partialAnchorRow >= 0) {
+        const Block& b = m_diffBlocks[idx];
+        const int lo = std::min(m_partialAnchorRow, row);
+        const int hi = std::max(m_partialAnchorRow, row);
         m_partialRows.clear();
-    }
-    if (m_partialRows.contains(row)) {
-        m_partialRows.remove(row);
-    } else {
-        m_partialRows.insert(row);
-    }
-    if (m_partialRows.isEmpty()) {
-        clearPartialSelection();
-    } else {
+        for (int r = lo; r <= hi; ++r) {
+            if (r >= b.rowStart && r < b.rowEnd) m_partialRows.insert(r);
+        }
         applyPartialVisuals();
+        return;
     }
+    const bool sameLoneRow =
+        m_partialBlockIdx == idx && m_partialFromLeftPane == fromLeftPane &&
+        m_partialRows.size() == 1 && m_partialRows.contains(row);
+    if (sameLoneRow) {
+        clearPartialSelection();
+        return;
+    }
+    m_partialBlockIdx = idx;
+    m_partialFromLeftPane = fromLeftPane;
+    m_partialRows.clear();
+    m_partialRows.insert(row);
+    m_partialAnchorRow = row;
+    applyPartialVisuals();
 }
 
 void DiffView::onArrowClicked(bool fromLeftPane, int row) {

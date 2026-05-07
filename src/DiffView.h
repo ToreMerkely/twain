@@ -80,11 +80,12 @@ private:
 
     int m_partialBlockIdx = -1;
     bool m_partialFromLeftPane = true;
+    int m_partialAnchorRow = -1;
     QSet<int> m_partialRows;
 
     void rebuildView();
     void onArrowClicked(bool fromLeftPane, int row);
-    void onLineNumberClicked(bool fromLeftPane, int row);
+    void onLineNumberClicked(bool fromLeftPane, int row, bool shift);
     void clearPartialSelection();
     void applyPartialVisuals();
     void setDirty(bool d);
