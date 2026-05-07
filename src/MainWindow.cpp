@@ -20,6 +20,7 @@
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QSettings>
+#include <QShortcut>
 #include <QStatusBar>
 #include <QStyle>
 #include <QTabWidget>
@@ -168,6 +169,21 @@ void MainWindow::createActions() {
         if (idx >= 0) onTabCloseRequested(idx);
     });
     addAction(m_actCloseTab);
+
+    auto* nextTab = new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_PageDown), this);
+    nextTab->setContext(Qt::ApplicationShortcut);
+    connect(nextTab, &QShortcut::activated, this, [this]() {
+        const int n = m_tabs->count();
+        if (n <= 0) return;
+        m_tabs->setCurrentIndex((m_tabs->currentIndex() + 1) % n);
+    });
+    auto* prevTab = new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_PageUp), this);
+    prevTab->setContext(Qt::ApplicationShortcut);
+    connect(prevTab, &QShortcut::activated, this, [this]() {
+        const int n = m_tabs->count();
+        if (n <= 0) return;
+        m_tabs->setCurrentIndex((m_tabs->currentIndex() - 1 + n) % n);
+    });
 
     auto makeToggle = [this](const QString& label) {
         auto* a = new QAction(label, this);
