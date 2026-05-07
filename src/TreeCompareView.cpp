@@ -163,7 +163,7 @@ bool TreeCompareView::setFolders(const QString& leftPath, const QString& rightPa
     recountLeaves();
     for (int i = 0; i < TreeCompareModel::kColCount; ++i) m_left->resizeColumnToContents(i);
     for (int i = 0; i < TreeCompareModel::kColCount; ++i) m_right->resizeColumnToContents(i);
-    m_left->expandToDepth(0);
+    m_left->expandAll();
     if (m_model->rowCount() > 0) {
         const QModelIndex first = m_model->index(0, 0);
         m_left->setCurrentIndex(first);
@@ -176,7 +176,7 @@ bool TreeCompareView::setFolders(const QString& leftPath, const QString& rightPa
 
 void TreeCompareView::setFilter(TreeCompareModel::FilterMode mode) {
     m_model->setFilter(mode);
-    m_left->expandToDepth(0);
+    m_left->expandAll();
 }
 
 static QModelIndex nextDocOrderIndex(const QAbstractItemModel* model, const QModelIndex& curr) {
