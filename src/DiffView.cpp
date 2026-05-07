@@ -92,11 +92,15 @@ DiffView::DiffView(QWidget* parent) : QWidget(parent) {
     connect(m_right, &QPlainTextEdit::cursorPositionChanged, this,
             [this]() { updateCurrentLineDisplay(m_right); });
     connect(m_left, &DiffPane::contentEdited, this, [this]() {
-        m_leftLines = m_left->extractContent();
+        const QStringList latest = m_left->extractContent();
+        if (latest == m_leftLines) return;
+        m_leftLines = latest;
         setDirty(true);
     });
     connect(m_right, &DiffPane::contentEdited, this, [this]() {
-        m_rightLines = m_right->extractContent();
+        const QStringList latest = m_right->extractContent();
+        if (latest == m_rightLines) return;
+        m_rightLines = latest;
         setDirty(true);
     });
 }
