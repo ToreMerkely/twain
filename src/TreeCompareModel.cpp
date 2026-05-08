@@ -179,18 +179,13 @@ QVariant TreeCompareModel::data(const QModelIndex& index, int role) const {
             return {};
         case Qt::ForegroundRole: {
             if (!sideHasEntry) return {};
+            if (e->isDir) return {};
             QColor c = foregroundFor(e->status, leftSide);
             if (!c.isValid()) return {};
             return QBrush(c);
         }
-        case Qt::FontRole: {
-            if (e->isDir && e->status == TreeCompare::Status::Different) {
-                QFont f;
-                f.setBold(true);
-                return f;
-            }
+        case Qt::FontRole:
             return {};
-        }
     }
     return {};
 }
