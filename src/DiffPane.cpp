@@ -59,7 +59,7 @@ constexpr int kArrowNotch = 3;
 }  // namespace
 
 DiffPane::DiffPane(QWidget* parent) : QPlainTextEdit(parent) {
-    QFont font("JetBrains Mono", 11);
+    QFont font("Noto Sans Mono", 11);
     font.setStyleHint(QFont::Monospace);
     setFont(font);
     setTabStopDistance(fontMetrics().horizontalAdvance(' ') * 4);

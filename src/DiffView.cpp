@@ -50,7 +50,7 @@ DiffView::DiffView(QWidget* parent) : QWidget(parent) {
     m_splitter->addWidget(rightContainer);
     m_splitter->setSizes({1, 1});
 
-    QFont monoFont("JetBrains Mono", 10);
+    QFont monoFont("Noto Sans Mono", 10);
     monoFont.setStyleHint(QFont::Monospace);
     const int oneLineHeight = QFontMetrics(monoFont).height() + 4;
     auto makeLineWidget = [&]() {
