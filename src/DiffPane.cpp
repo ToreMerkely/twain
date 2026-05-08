@@ -4,9 +4,6 @@
 #include <QFont>
 #include <QKeyEvent>
 #include <QMouseEvent>
-#include <QSyntaxHighlighter>
-
-#include "HighlighterFactory.h"
 #include <QPaintEvent>
 #include <QPainter>
 #include <QResizeEvent>
@@ -87,17 +84,17 @@ void DiffPane::setSide(Side s) {
     m_lineNumberArea->update();
 }
 
-void DiffPane::setLanguageFromPath(const QString& path) {
-    delete m_highlighter;
-    m_highlighter = makeHighlighter(path, document());
-}
-
 void DiffPane::setRows(const QVector<DiffRow>& rows) {
     m_loading = true;
     m_rows = rows;
+    int maxSrc = 0;
     QStringList texts;
     texts.reserve(rows.size());
-    for (const auto& r : rows) texts << r.text;
+    for (const auto& r : rows) {
+        texts << r.text;
+        if (r.sourceLine + 1 > maxSrc) maxSrc = r.sourceLine + 1;
+    }
+    m_maxSourceLine = maxSrc;
     setPlainText(texts.join('\n'));
     applyRowBackgrounds();
     m_lineNumberArea->update();
@@ -172,9 +169,9 @@ void DiffPane::applyRowBackgrounds() {
     selections.reserve(m_rows.size());
 
     QTextDocument* doc = document();
-    for (int i = 0; i < m_rows.size(); ++i) {
+    QTextBlock block = doc->firstBlock();
+    for (int i = 0; i < m_rows.size(); ++i, block = block.next()) {
         const auto& r = m_rows[i];
-        QTextBlock block = doc->findBlockByNumber(i);
         if (!block.isValid()) continue;
 
         if (r.partialSelected) {
@@ -214,10 +211,7 @@ void DiffPane::applyRowBackgrounds() {
 
 int DiffPane::lineNumberAreaWidth() const {
     int digits = 1;
-    int max = qMax(1, blockCount());
-    for (const auto& r : m_rows) {
-        if (r.sourceLine + 1 > max) max = r.sourceLine + 1;
-    }
+    int max = qMax(qMax(1, blockCount()), m_maxSourceLine);
     while (max >= 10) {
         max /= 10;
         ++digits;

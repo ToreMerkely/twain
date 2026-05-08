@@ -7,7 +7,6 @@
 
 class QPaintEvent;
 class QResizeEvent;
-class QSyntaxHighlighter;
 class QWheelEvent;
 
 struct DiffRow {
@@ -30,7 +29,6 @@ public:
 
     void setSide(Side s);
     void setRows(const QVector<DiffRow>& rows);
-    void setLanguageFromPath(const QString& path);
     QStringList extractContent() const;
 
     struct CursorContext {
@@ -71,7 +69,7 @@ private:
 
     QWidget* m_lineNumberArea;
     QVector<DiffRow> m_rows;
-    QSyntaxHighlighter* m_highlighter = nullptr;
     Side m_side = Side::Left;
     bool m_loading = false;
+    int m_maxSourceLine = 0;  // cached: largest sourceLine in m_rows + 1
 };

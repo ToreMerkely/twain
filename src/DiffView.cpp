@@ -403,8 +403,6 @@ bool DiffView::setFiles(const QString& leftPath, const QString& rightPath, QStri
     m_rightPath = rightPath;
     m_leftLines = leftLines;
     m_rightLines = rightLines;
-    m_left->setLanguageFromPath(leftPath.isEmpty() ? rightPath : leftPath);
-    m_right->setLanguageFromPath(rightPath.isEmpty() ? leftPath : rightPath);
     m_leftPathLabel->setText(leftPath);
     m_leftPathLabel->setToolTip(leftPath);
     m_rightPathLabel->setText(rightPath);
