@@ -153,12 +153,12 @@ QVector<Token> tokenize(const QString& line) {
     int i = 0;
     while (i < n) {
         const QChar c = line[i];
-        const bool isWord = c.isLetterOrNumber() || c == QLatin1Char('_');
+        const bool isWord = c.isLetterOrNumber();
         if (isWord) {
             int j = i + 1;
             while (j < n) {
                 const QChar c2 = line[j];
-                if (!c2.isLetterOrNumber() && c2 != QLatin1Char('_')) break;
+                if (!c2.isLetterOrNumber()) break;
                 ++j;
             }
             result.append({line.mid(i, j - i), i, j - i});
