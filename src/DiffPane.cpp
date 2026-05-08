@@ -39,7 +39,11 @@ QColor colorFor(Diff::Op op, bool filler) {
     }
 }
 
-QColor segmentColor() { return QColor(255, 150, 150); }
+QBrush fillerBrush() {
+    return QBrush(QColor(160, 160, 160), Qt::BDiagPattern);
+}
+
+QColor segmentColor() { return QColor(200, 0, 0); }
 QColor arrowColor() { return QColor(255, 195, 50); }
 QColor arrowEdgeColor() { return QColor(180, 120, 0); }
 QColor bracketColor() { return QColor(60, 60, 60); }
@@ -185,7 +189,11 @@ void DiffPane::applyRowBackgrounds() {
             // Suppress the normal red/gray background.
         } else if (r.kind != Diff::Op::Equal || r.filler) {
             QTextEdit::ExtraSelection sel;
-            sel.format.setBackground(colorFor(r.kind, r.filler));
+            if (r.filler) {
+                sel.format.setBackground(fillerBrush());
+            } else {
+                sel.format.setBackground(colorFor(r.kind, r.filler));
+            }
             sel.format.setProperty(QTextFormat::FullWidthSelection, true);
             sel.cursor = QTextCursor(block);
             sel.cursor.clearSelection();
@@ -196,7 +204,8 @@ void DiffPane::applyRowBackgrounds() {
         for (const auto& seg : r.segments) {
             if (!seg.differ) continue;
             QTextEdit::ExtraSelection ssel;
-            ssel.format.setBackground(segmentColor());
+            ssel.format.setForeground(segmentColor());
+            ssel.format.setFontWeight(QFont::Bold);
             QTextCursor c(block);
             const int start = block.position() + seg.start;
             const int end = start + seg.length;

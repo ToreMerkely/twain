@@ -540,7 +540,8 @@ void DiffView::updateCurrentLineDisplay(DiffPane* source) {
         for (const auto& s : segs) {
             if (!s.differ) continue;
             QTextEdit::ExtraSelection sel;
-            sel.format.setBackground(QColor(255, 150, 150));
+            sel.format.setForeground(QColor(200, 0, 0));
+            sel.format.setFontWeight(QFont::Bold);
             QTextCursor c(blk);
             const int start = blk.position() + s.start;
             const int end = start + s.length;
