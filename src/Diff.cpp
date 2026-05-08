@@ -244,7 +244,7 @@ double similarity(const QString& a, const QString& b) {
 QVector<AlignmentPair> alignBlock(const QStringList& left, const QStringList& right) {
     const int n = left.size();
     const int m = right.size();
-    constexpr double kSimilarityThreshold = 0.3;
+    constexpr double kSimilarityThreshold = 0.1;
 
     QVector<QVector<double>> score(n + 1, QVector<double>(m + 1, 0.0));
     QVector<QVector<int>> back(n + 1, QVector<int>(m + 1, 0));

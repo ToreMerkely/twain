@@ -187,13 +187,16 @@ void DiffPane::applyRowBackgrounds() {
             selections.append(sel);
         } else if (r.partialNeutral) {
             // Suppress the normal red/gray background.
-        } else if (r.kind != Diff::Op::Equal || r.filler) {
+        } else if (r.filler) {
             QTextEdit::ExtraSelection sel;
-            if (r.filler) {
-                sel.format.setBackground(fillerBrush());
-            } else {
-                sel.format.setBackground(colorFor(r.kind, r.filler));
-            }
+            sel.format.setBackground(fillerBrush());
+            sel.format.setProperty(QTextFormat::FullWidthSelection, true);
+            sel.cursor = QTextCursor(block);
+            sel.cursor.clearSelection();
+            selections.append(sel);
+        } else if (r.kind != Diff::Op::Equal) {
+            QTextEdit::ExtraSelection sel;
+            sel.format.setBackground(colorFor(r.kind, r.filler));
             sel.format.setProperty(QTextFormat::FullWidthSelection, true);
             sel.cursor = QTextCursor(block);
             sel.cursor.clearSelection();
