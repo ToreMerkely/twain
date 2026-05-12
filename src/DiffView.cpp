@@ -4,8 +4,12 @@
 #include <QFont>
 #include <QFontMetrics>
 #include <QHBoxLayout>
+#include <QKeyEvent>
 #include <QLabel>
+#include <QLineEdit>
 #include <QPlainTextEdit>
+#include <QPushButton>
+#include <QToolButton>
 #include <QScrollBar>
 #include <QSplitter>
 #include <QTextBlock>
@@ -84,9 +88,63 @@ DiffView::DiffView(QWidget* parent) : QWidget(parent) {
     midLayout->addWidget(m_overview, 0);
     midLayout->addWidget(m_splitter, 1);
 
+    m_searchBar = new QWidget(this);
+    {
+        auto* lay = new QHBoxLayout(m_searchBar);
+        lay->setContentsMargins(4, 2, 4, 2);
+        lay->setSpacing(4);
+        auto* label = new QLabel("Find:", m_searchBar);
+        m_searchEdit = new QLineEdit(m_searchBar);
+        m_searchEdit->setClearButtonEnabled(true);
+        m_searchStatus = new QLabel(m_searchBar);
+        auto* prev = new QToolButton(m_searchBar);
+        prev->setText("◀");
+        prev->setToolTip("Previous (Shift+Enter / Shift+F3)");
+        auto* next = new QToolButton(m_searchBar);
+        next->setText("▶");
+        next->setToolTip("Next (Enter / F3)");
+        auto* close = new QToolButton(m_searchBar);
+        close->setText("✕");
+        close->setToolTip("Close (Esc)");
+        lay->addWidget(label);
+        lay->addWidget(m_searchEdit, 1);
+        lay->addWidget(m_searchStatus);
+        lay->addWidget(prev);
+        lay->addWidget(next);
+        lay->addWidget(close);
+
+        connect(m_searchEdit, &QLineEdit::textChanged, this, [this](const QString& t) {
+            m_left->setSearchTerm(t);
+            m_right->setSearchTerm(t);
+            updateSearchStatus();
+        });
+        connect(m_searchEdit, &QLineEdit::returnPressed, this, [this]() {
+            DiffPane* p = currentSearchTarget();
+            p->findNext();
+            updateSearchStatus();
+        });
+        connect(next, &QToolButton::clicked, this, [this]() {
+            currentSearchTarget()->findNext();
+            updateSearchStatus();
+        });
+        connect(prev, &QToolButton::clicked, this, [this]() {
+            currentSearchTarget()->findPrev();
+            updateSearchStatus();
+        });
+        connect(close, &QToolButton::clicked, this, [this]() {
+            m_searchEdit->clear();
+            m_searchBar->hide();
+            m_left->setSearchTerm({});
+            m_right->setSearchTerm({});
+        });
+        m_searchEdit->installEventFilter(this);
+    }
+    m_searchBar->hide();
+
     auto* layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(0);
+    layout->addWidget(m_searchBar, 0);
     layout->addWidget(mid, 1);
     layout->addWidget(bottom, 0);
 
@@ -760,4 +818,57 @@ bool DiffView::save(QString* error) {
     if (focused == m_left) m_left->setFocus();
     else if (focused == m_right) m_right->setFocus();
     return true;
+}
+
+void DiffView::showSearchBar() {
+    m_searchBar->show();
+    m_searchEdit->setFocus();
+    m_searchEdit->selectAll();
+}
+
+DiffPane* DiffView::currentSearchTarget() const {
+    return m_right->hasFocus() ? m_right : m_left;
+}
+
+void DiffView::updateSearchStatus() {
+    const QString t = m_searchEdit->text();
+    if (t.isEmpty()) {
+        m_searchStatus->clear();
+        return;
+    }
+    const int lc = m_left->matchCount();
+    const int rc = m_right->matchCount();
+    const DiffPane* target = currentSearchTarget();
+    const int cur = target->currentMatchIndex();
+    const int total = target->matchCount();
+    if (total == 0 && lc == 0 && rc == 0) {
+        m_searchStatus->setText("no matches");
+    } else {
+        m_searchStatus->setText(QString("%1/%2  (L:%3 R:%4)")
+                                    .arg(cur >= 0 ? cur + 1 : 0)
+                                    .arg(total)
+                                    .arg(lc)
+                                    .arg(rc));
+    }
+}
+
+bool DiffView::eventFilter(QObject* obj, QEvent* event) {
+    if (obj == m_searchEdit && event->type() == QEvent::KeyPress) {
+        auto* ke = static_cast<QKeyEvent*>(event);
+        if (ke->key() == Qt::Key_Escape) {
+            m_searchEdit->clear();
+            m_searchBar->hide();
+            m_left->setSearchTerm({});
+            m_right->setSearchTerm({});
+            (m_left->hasFocus() ? m_left : m_right)->setFocus();
+            return true;
+        }
+        if ((ke->key() == Qt::Key_Return || ke->key() == Qt::Key_Enter) &&
+            (ke->modifiers() & Qt::ShiftModifier)) {
+            currentSearchTarget()->findPrev();
+            updateSearchStatus();
+            return true;
+        }
+    }
+    return QWidget::eventFilter(obj, event);
 }

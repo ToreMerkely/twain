@@ -168,6 +168,13 @@ void MainWindow::createActions() {
     connect(m_actUndo, &QAction::triggered, this, &MainWindow::undo);
     addAction(m_actUndo);
 
+    auto* findAct = new QAction("&Find", this);
+    findAct->setShortcut(QKeySequence::Find);
+    connect(findAct, &QAction::triggered, this, [this]() {
+        if (auto* dv = currentDiffView()) dv->showSearchBar();
+    });
+    addAction(findAct);
+
     m_actCloseTab = new QAction("&Close Tab", this);
     m_actCloseTab->setShortcut(QKeySequence::Close);  // Ctrl+W
     connect(m_actCloseTab, &QAction::triggered, this, [this]() {

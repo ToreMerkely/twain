@@ -11,6 +11,7 @@
 class DiffOverview;
 class DiffPane;
 class QLabel;
+class QLineEdit;
 class QPlainTextEdit;
 class QSplitter;
 
@@ -44,6 +45,8 @@ public:
     QByteArray saveSplitterState() const;
     void restoreSplitterState(const QByteArray& state);
 
+    void showSearchBar();
+
     struct Block {
         int rowStart = 0;
         int rowEnd = 0;
@@ -57,6 +60,9 @@ signals:
     void currentDifferenceChanged(int index, int total);
     void dirtyChanged(bool dirty);
 
+protected:
+    bool eventFilter(QObject* obj, QEvent* event) override;
+
 private:
     QSplitter* m_splitter;
     DiffPane* m_left;
@@ -64,6 +70,9 @@ private:
     DiffOverview* m_overview = nullptr;
     QLabel* m_leftPathLabel = nullptr;
     QLabel* m_rightPathLabel = nullptr;
+    QWidget* m_searchBar = nullptr;
+    QLineEdit* m_searchEdit = nullptr;
+    QLabel* m_searchStatus = nullptr;
     QPlainTextEdit* m_currentLeftLine = nullptr;
     QPlainTextEdit* m_currentRightLine = nullptr;
     bool m_syncing = false;
@@ -94,6 +103,8 @@ private:
     void rebuildView();
     void onArrowClicked(bool fromLeftPane, int row);
     void onLineNumberClicked(bool fromLeftPane, int row, bool shift);
+    DiffPane* currentSearchTarget() const;
+    void updateSearchStatus();
     void clearPartialSelection();
     void applyPartialVisuals();
     void updateCurrentLineDisplay(DiffPane* source);

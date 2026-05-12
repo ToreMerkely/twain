@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QPair>
 #include <QPlainTextEdit>
 #include <QVector>
 
@@ -30,6 +31,12 @@ public:
     void setSide(Side s);
     void setRows(const QVector<DiffRow>& rows);
     QStringList extractContent() const;
+
+    void setSearchTerm(const QString& term);
+    bool findNext();
+    bool findPrev();
+    int matchCount() const { return m_matches.size(); }
+    int currentMatchIndex() const { return m_currentMatch; }
 
     struct CursorContext {
         int fileLine = -1;
@@ -72,4 +79,9 @@ private:
     Side m_side = Side::Left;
     bool m_loading = false;
     int m_maxSourceLine = 0;  // cached: largest sourceLine in m_rows + 1
+    QString m_searchTerm;
+    QVector<QPair<int, int>> m_matches;  // (absolute position, length) within the document
+    int m_currentMatch = -1;
+
+    void scrollToCurrentMatch();
 };

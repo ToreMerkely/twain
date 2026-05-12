@@ -218,7 +218,60 @@ void DiffPane::applyRowBackgrounds() {
             selections.append(ssel);
         }
     }
+
+    for (int i = 0; i < m_matches.size(); ++i) {
+        const auto& m = m_matches[i];
+        QTextEdit::ExtraSelection sel;
+        sel.format.setBackground(i == m_currentMatch ? QColor(255, 165, 0)
+                                                     : QColor(255, 230, 130));
+        QTextCursor c(document());
+        c.setPosition(m.first);
+        c.setPosition(m.first + m.second, QTextCursor::KeepAnchor);
+        sel.cursor = c;
+        selections.append(sel);
+    }
     setExtraSelections(selections);
+}
+
+void DiffPane::setSearchTerm(const QString& term) {
+    m_searchTerm = term;
+    m_matches.clear();
+    m_currentMatch = -1;
+    if (!term.isEmpty()) {
+        const QString doc = toPlainText();
+        int idx = 0;
+        while ((idx = doc.indexOf(term, idx, Qt::CaseInsensitive)) >= 0) {
+            m_matches.append(qMakePair(idx, term.size()));
+            idx += term.size();
+        }
+    }
+    applyRowBackgrounds();
+}
+
+bool DiffPane::findNext() {
+    if (m_matches.isEmpty()) return false;
+    m_currentMatch = (m_currentMatch + 1) % m_matches.size();
+    scrollToCurrentMatch();
+    applyRowBackgrounds();
+    return true;
+}
+
+bool DiffPane::findPrev() {
+    if (m_matches.isEmpty()) return false;
+    m_currentMatch = (m_currentMatch <= 0) ? m_matches.size() - 1 : m_currentMatch - 1;
+    scrollToCurrentMatch();
+    applyRowBackgrounds();
+    return true;
+}
+
+void DiffPane::scrollToCurrentMatch() {
+    if (m_currentMatch < 0 || m_currentMatch >= m_matches.size()) return;
+    const auto& m = m_matches[m_currentMatch];
+    QTextCursor c(document());
+    c.setPosition(m.first);
+    c.setPosition(m.first + m.second, QTextCursor::KeepAnchor);
+    setTextCursor(c);
+    centerCursor();
 }
 
 int DiffPane::lineNumberAreaWidth() const {
