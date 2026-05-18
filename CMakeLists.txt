@@ -8,6 +8,8 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+option(TWAIN_DEBUG "Enable twain debug instrumentation (logs to /tmp/twain-PID.log)" OFF)
+
 find_package(Qt6 REQUIRED COMPONENTS Widgets)
 
 add_executable(twain
@@ -17,6 +19,7 @@ add_executable(twain
     src/DiffOverview.cpp
     src/DiffPane.cpp
     src/Diff.cpp
+    src/DebugLog.cpp
     src/TreeCompareView.cpp
     src/TreeCompare.cpp
     src/TreeCompareModel.cpp
@@ -24,3 +27,8 @@ add_executable(twain
 )
 
 target_link_libraries(twain PRIVATE Qt6::Widgets)
+
+if(TWAIN_DEBUG)
+    target_compile_definitions(twain PRIVATE TWAIN_DEBUG=1)
+    set_target_properties(twain PROPERTIES OUTPUT_NAME twain-debug)
+endif()

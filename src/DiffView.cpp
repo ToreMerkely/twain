@@ -1,8 +1,10 @@
 #include "DiffView.h"
 
 #include <QFile>
+#include <QFileInfo>
 #include <QFileSystemWatcher>
 #include <QFont>
+#include <QLocale>
 #include <QTimer>
 #include <QFontMetrics>
 #include <QHBoxLayout>
@@ -22,6 +24,7 @@
 #include <QVBoxLayout>
 #include <algorithm>
 
+#include "DebugLog.h"
 #include "Diff.h"
 #include "DiffOverview.h"
 #include "DiffPane.h"
@@ -211,6 +214,8 @@ DiffView::DiffView(QWidget* parent) : QWidget(parent) {
             [this](int row, bool shift) { onLineNumberClicked(/*fromLeftPane=*/false, row, shift); });
     connect(m_left, &DiffPane::clearPartialRequested, this, &DiffView::clearPartialSelection);
     connect(m_right, &DiffPane::clearPartialRequested, this, &DiffView::clearPartialSelection);
+    connect(m_left, &DiffPane::truncationMarkerClicked, this, &DiffView::loadMore);
+    connect(m_right, &DiffPane::truncationMarkerClicked, this, &DiffView::loadMore);
     connect(m_left, &QPlainTextEdit::cursorPositionChanged, this,
             [this]() { updateCurrentLineDisplay(m_left); });
     connect(m_right, &QPlainTextEdit::cursorPositionChanged, this,
@@ -252,32 +257,138 @@ static bool looksBinary(const QByteArray& bytes) {
     return false;
 }
 
-static QStringList readFileLines(const QString& path, bool* ok, QString* err) {
+using FileLoadInfo = DiffView::FileLoadInfo;
+
+static constexpr qint64 kLazyLoadThresholdBytes = 10 * 1024 * 1024;  // 10 MB
+static constexpr int kLazyLoadMaxLines = 10000;
+
+static QStringList streamLines(QFile& f, int maxLines) {
+    QStringList lines;
+    lines.reserve(maxLines);
+    for (int i = 0; i < maxLines; ++i) {
+        if (f.atEnd()) break;
+        QByteArray raw = f.readLine();
+        while (!raw.isEmpty() && (raw.endsWith('\n') || raw.endsWith('\r'))) {
+            raw.chop(1);
+        }
+        lines.append(QString::fromUtf8(raw));
+    }
+    return lines;
+}
+
+static QStringList readFileLinesStreaming(QFile& f, FileLoadInfo* info, bool* ok, QString* err,
+                                          const QString& path) {
+    TIFF_SCOPED_VAR(_t, "  readFileLines.streaming");
+    // Probe the head for binary content before committing to the read.
+    const QByteArray probe = f.peek(8192);
+    if (looksBinary(probe)) {
+        if (ok) *ok = false;
+        if (err) *err = path + " appears to be a binary file";
+        return {};
+    }
+    QStringList lines = streamLines(f, kLazyLoadMaxLines);
+    info->streamOffset = f.pos();
+    info->truncated = !f.atEnd();
+    if (ok) *ok = true;
+    TIFF_SCOPED_NOTE(_t, QString("lines=%1 truncated=%2")
+                             .arg(lines.size()).arg(info->truncated ? "yes" : "no"));
+    return lines;
+}
+
+// Load up to kLazyLoadMaxLines more lines. For the byte path the rest of the
+// file is already in info->pendingLines; for the streaming path we reopen the
+// file and resume from info->streamOffset.
+static QStringList loadMoreLines(const QString& path, FileLoadInfo* info) {
+    TIFF_SCOPED_VAR(_t, "loadMoreLines");
+    if (!info || !info->truncated) return {};
+    QStringList more;
+    if (!info->pendingLines.isEmpty()) {
+        const int n = qMin(info->pendingLines.size(), kLazyLoadMaxLines);
+        more = info->pendingLines.mid(0, n);
+        info->pendingLines.erase(info->pendingLines.begin(),
+                                 info->pendingLines.begin() + n);
+        info->truncated = !info->pendingLines.isEmpty();
+    } else {
+        QFile f(path);
+        if (!f.open(QIODevice::ReadOnly)) return {};
+        if (!f.seek(info->streamOffset)) return {};
+        more = streamLines(f, kLazyLoadMaxLines);
+        info->streamOffset = f.pos();
+        info->truncated = !f.atEnd();
+    }
+    TIFF_SCOPED_NOTE(_t, QString("path=%1 more=%2 truncated=%3")
+                             .arg(path).arg(more.size())
+                             .arg(info->truncated ? "yes" : "no"));
+    return more;
+}
+
+static QStringList readFileLines(const QString& path, FileLoadInfo* info,
+                                 bool* ok, QString* err) {
+    TIFF_SCOPED_VAR(_t, "readFileLines");
+    if (info) *info = {};
     QFile f(path);
     if (!f.open(QIODevice::ReadOnly)) {
         if (ok) *ok = false;
         if (err) *err = "Could not open " + path;
         return {};
     }
-    const QByteArray bytes = f.readAll();
+    const qint64 totalBytes = QFileInfo(path).size();
+    if (info) info->totalBytes = totalBytes;
+
+    if (totalBytes > kLazyLoadThresholdBytes) {
+        QStringList lines = readFileLinesStreaming(f, info, ok, err, path);
+        TIFF_SCOPED_NOTE(_t, QString("path=%1 bytes=%2 lines=%3 truncated=%4")
+                                 .arg(path).arg(totalBytes).arg(lines.size())
+                                 .arg(info && info->truncated ? "yes" : "no"));
+        return lines;
+    }
+
+    QByteArray bytes;
+    {
+        TIFF_SCOPED("  readFileLines.readAll");
+        bytes = f.readAll();
+    }
     if (looksBinary(bytes)) {
         if (ok) *ok = false;
         if (err) *err = path + " appears to be a binary file";
         return {};
     }
-    QString text = QString::fromUtf8(bytes);
-    text.replace("\r\n", "\n");
-    text.replace('\r', '\n');
-    QStringList lines = text.split('\n');
+    QString text;
+    {
+        TIFF_SCOPED("  readFileLines.decodeUtf8");
+        text = QString::fromUtf8(bytes);
+    }
+    if (text.contains('\r')) {
+        TIFF_SCOPED("  readFileLines.normalizeLineEndings");
+        text.replace("\r\n", "\n");
+        text.replace('\r', '\n');
+    }
+    QStringList lines;
+    {
+        TIFF_SCOPED("  readFileLines.split");
+        lines = text.split('\n');
+    }
     // split() leaves a trailing empty element when text ends with '\n' — drop it
     if (!lines.isEmpty() && lines.last().isEmpty() && text.endsWith('\n')) {
         lines.removeLast();
     }
+    if (info) info->totalLines = lines.size();
+    if (lines.size() > kLazyLoadMaxLines) {
+        if (info) {
+            info->pendingLines = lines.mid(kLazyLoadMaxLines);
+            info->truncated = true;
+        }
+        lines.resize(kLazyLoadMaxLines);
+    }
+    TIFF_SCOPED_NOTE(_t, QString("path=%1 bytes=%2 lines=%3 truncated=%4")
+                             .arg(path).arg(bytes.size()).arg(lines.size())
+                             .arg(info && info->truncated ? "yes" : "no"));
     if (ok) *ok = true;
     return lines;
 }
 
 static void filterBlanks(const QStringList& orig, QStringList* out, QVector<int>* origIdx) {
+    TIFF_SCOPED_VAR(_t, "filterBlanks");
     out->clear();
     origIdx->clear();
     out->reserve(orig.size());
@@ -288,6 +399,7 @@ static void filterBlanks(const QStringList& orig, QStringList* out, QVector<int>
             origIdx->append(i);
         }
     }
+    TIFF_SCOPED_NOTE(_t, QString("in=%1 out=%2").arg(orig.size()).arg(out->size()));
 }
 
 struct AlignedBuildResult {
@@ -311,9 +423,16 @@ static AlignedBuildResult buildAlignedRows(
     const QVector<Diff::Hunk>& hunks, Diff::Options diffOpts,
     HighlightRange highlight,
     QVector<DiffRow>& leftRows, QVector<DiffRow>& rightRows) {
+    TIFF_SCOPED_VAR(_tBuild, "buildAlignedRows");
     AlignedBuildResult res;
     leftRows.clear();
     rightRows.clear();
+#ifdef TWAIN_DEBUG
+    int lineDiffCalls = 0;
+    int alignBlockCalls = 0;
+    double lineDiffTotalMs = 0.0;
+    double alignBlockTotalMs = 0.0;
+#endif
 
     int i = 0;
     while (i < hunks.size()) {
@@ -402,7 +521,15 @@ static AlignedBuildResult buildAlignedRows(
 
         QVector<Diff::AlignmentPair> pairs;
         if (hasDel && hasIns) {
+#ifdef TWAIN_DEBUG
+            const auto _abStart = std::chrono::steady_clock::now();
+#endif
             pairs = Diff::alignBlock(leftBlock, rightBlock);
+#ifdef TWAIN_DEBUG
+            const auto _abEnd = std::chrono::steady_clock::now();
+            alignBlockCalls++;
+            alignBlockTotalMs += std::chrono::duration<double, std::milli>(_abEnd - _abStart).count();
+#endif
         } else {
             for (int k = 0; k < leftBlock.size(); ++k) pairs.append({k, -1});
             for (int k = 0; k < rightBlock.size(); ++k) pairs.append({-1, k});
@@ -430,7 +557,15 @@ static AlignedBuildResult buildAlignedRows(
                 rr.recentlyCopied = inRange(rr.sourceLine, highlight.rightStart, highlight.rightCount);
             }
             if (p.leftIdx >= 0 && p.rightIdx >= 0) {
+#ifdef TWAIN_DEBUG
+                const auto _ldStart = std::chrono::steady_clock::now();
+#endif
                 const auto ld = Diff::lineDiff(lr.text, rr.text, diffOpts);
+#ifdef TWAIN_DEBUG
+                const auto _ldEnd = std::chrono::steady_clock::now();
+                lineDiffCalls++;
+                lineDiffTotalMs += std::chrono::duration<double, std::milli>(_ldEnd - _ldStart).count();
+#endif
                 lr.segments = ld.left;
                 rr.segments = ld.right;
             }
@@ -440,15 +575,28 @@ static AlignedBuildResult buildAlignedRows(
         block.rowEnd = leftRows.size();
         res.blocks.append(block);
     }
+#ifdef TWAIN_DEBUG
+    TIFF_SCOPED_NOTE(_tBuild,
+        QString("blocks=%1 rows=%2 lineDiff(n=%3,total=%4ms) alignBlock(n=%5,total=%6ms)")
+            .arg(res.blocks.size())
+            .arg(leftRows.size())
+            .arg(lineDiffCalls)
+            .arg(lineDiffTotalMs, 0, 'f', 2)
+            .arg(alignBlockCalls)
+            .arg(alignBlockTotalMs, 0, 'f', 2));
+#endif
     return res;
 }
 
 bool DiffView::setFiles(const QString& leftPath, const QString& rightPath, QString* error) {
+    TIFF_LOG(QString("setFiles begin left=%1 right=%2").arg(leftPath, rightPath));
+    TIFF_SCOPED("DiffView::setFiles");
     QStringList leftLines, rightLines;
+    FileLoadInfo leftInfo, rightInfo;
     if (!leftPath.isEmpty()) {
         bool okL = false;
         QString errL;
-        leftLines = readFileLines(leftPath, &okL, &errL);
+        leftLines = readFileLines(leftPath, &leftInfo, &okL, &errL);
         if (!okL) {
             if (error) *error = errL;
             return false;
@@ -457,12 +605,14 @@ bool DiffView::setFiles(const QString& leftPath, const QString& rightPath, QStri
     if (!rightPath.isEmpty()) {
         bool okR = false;
         QString errR;
-        rightLines = readFileLines(rightPath, &okR, &errR);
+        rightLines = readFileLines(rightPath, &rightInfo, &okR, &errR);
         if (!okR) {
             if (error) *error = errR;
             return false;
         }
     }
+    m_leftLoadInfo = leftInfo;
+    m_rightLoadInfo = rightInfo;
 
     Diff::Options diffOpts;
     diffOpts.ignoreCase = m_options.ignoreCase;
@@ -492,10 +642,33 @@ bool DiffView::setFiles(const QString& leftPath, const QString& rightPath, QStri
         if (!leftPath.isEmpty() && QFile::exists(leftPath)) m_watcher->addPath(leftPath);
         if (!rightPath.isEmpty() && QFile::exists(rightPath)) m_watcher->addPath(rightPath);
     }
-    m_leftPathLabel->setText(leftPath);
-    m_leftPathLabel->setToolTip(leftPath);
-    m_rightPathLabel->setText(rightPath);
-    m_rightPathLabel->setToolTip(rightPath);
+    auto formatLabel = [](const QString& path, const FileLoadInfo& info) -> QString {
+        if (!info.truncated) return path;
+        const QString sizeStr = QLocale().formattedDataSize(info.totalBytes, 1);
+        const QString capStr = QLocale().toString(kLazyLoadMaxLines);
+        QString prefix;
+        if (info.totalLines > 0) {
+            prefix = QString("[TRUNCATED to %1 of %2 lines, %3]  ")
+                         .arg(capStr, QLocale().toString(info.totalLines), sizeStr);
+        } else {
+            prefix = QString("[TRUNCATED to %1 lines, %2]  ").arg(capStr, sizeStr);
+        }
+        return prefix + path;
+    };
+    auto formatTooltip = [](const QString& path, const FileLoadInfo& info) -> QString {
+        if (!info.truncated) return path;
+        const QString sizeStr = QLocale().formattedDataSize(info.totalBytes, 1);
+        const QString capStr = QLocale().toString(kLazyLoadMaxLines);
+        if (info.totalLines > 0) {
+            return QString("%1\n\nShowing first %2 of %3 lines (%4)")
+                .arg(path, capStr, QLocale().toString(info.totalLines), sizeStr);
+        }
+        return QString("%1\n\nShowing first %2 lines (%3)").arg(path, capStr, sizeStr);
+    };
+    m_leftPathLabel->setText(formatLabel(leftPath, m_leftLoadInfo));
+    m_leftPathLabel->setToolTip(formatTooltip(leftPath, m_leftLoadInfo));
+    m_rightPathLabel->setText(formatLabel(rightPath, m_rightLoadInfo));
+    m_rightPathLabel->setToolTip(formatTooltip(rightPath, m_rightLoadInfo));
 
     rebuildView();
     setDirty(false);
@@ -511,6 +684,7 @@ bool DiffView::setFiles(const QString& leftPath, const QString& rightPath, QStri
 }
 
 void DiffView::rebuildView() {
+    TIFF_SCOPED_VAR(_tRebuild, "DiffView::rebuildView");
     m_partialBlockIdx = -1;
     m_partialRows.clear();
     m_partialAnchorRow = -1;
@@ -531,7 +705,15 @@ void DiffView::rebuildView() {
         for (int i = 0; i < m_rightLines.size(); ++i) rightMap.append(i);
     }
 
-    const auto hunks = Diff::compute(compareLeft, compareRight, diffOpts);
+    QVector<Diff::Hunk> hunks;
+    {
+        TIFF_SCOPED_VAR(_tCompute, "Diff::compute");
+        hunks = Diff::compute(compareLeft, compareRight, diffOpts);
+        TIFF_SCOPED_NOTE(_tCompute, QString("nL=%1 nR=%2 hunks=%3")
+                                        .arg(compareLeft.size())
+                                        .arg(compareRight.size())
+                                        .arg(hunks.size()));
+    }
     QVector<DiffRow> leftRows, rightRows;
     HighlightRange hl;
     hl.leftStart = m_highlightLeftStart;
@@ -541,8 +723,48 @@ void DiffView::rebuildView() {
     auto res = buildAlignedRows(m_leftLines, m_rightLines, leftMap, rightMap,
                                 hunks, diffOpts, hl, leftRows, rightRows);
     m_diffBlocks = res.blocks;
-    m_left->setRows(leftRows);
-    m_right->setRows(rightRows);
+
+    if (m_leftLoadInfo.truncated || m_rightLoadInfo.truncated) {
+        auto markerText = [](const FileLoadInfo& info, int loaded) -> QString {
+            if (!info.truncated) return QString();
+            const QString capStr = QLocale().toString(kLazyLoadMaxLines);
+            QString tail;
+            if (info.totalLines > 0) {
+                tail = QString("%1 of %2 lines shown")
+                           .arg(QLocale().toString(loaded),
+                                QLocale().toString(info.totalLines));
+            } else {
+                tail = QString("%1 lines shown, %2 total on disk")
+                           .arg(QLocale().toString(loaded),
+                                QLocale().formattedDataSize(info.totalBytes, 1));
+            }
+            return QString("► Click to load next %1 lines  (%2) ◄").arg(capStr, tail);
+        };
+        // The bar spans three rows for visibility: blank, text, blank.
+        // All rows are flagged as markers so they share the yellow styling
+        // and any of them is clickable; loadMore() only loads on sides where
+        // info.truncated is still true.
+        const QString leftText = markerText(m_leftLoadInfo, m_leftLines.size());
+        const QString rightText = markerText(m_rightLoadInfo, m_rightLines.size());
+        auto pushMarker = [&](const QString& l, const QString& r) {
+            DiffRow lm{-1, l, Diff::Op::Equal, true, {}, false, false, false, true};
+            DiffRow rm{-1, r, Diff::Op::Equal, true, {}, false, false, false, true};
+            leftRows.append(lm);
+            rightRows.append(rm);
+        };
+        pushMarker({}, {});
+        pushMarker(leftText, rightText);
+        pushMarker({}, {});
+    }
+
+    {
+        TIFF_SCOPED("DiffPane::setRows left");
+        m_left->setRows(leftRows);
+    }
+    {
+        TIFF_SCOPED("DiffPane::setRows right");
+        m_right->setRows(rightRows);
+    }
 
     if (m_overview) {
         QVector<DiffOverview::Mark> marks;
@@ -554,6 +776,52 @@ void DiffView::rebuildView() {
         const int visibleLines = lineH > 0 ? m_left->viewport()->height() / lineH : 0;
         m_overview->setViewport(m_left->verticalScrollBar()->value(), visibleLines);
     }
+}
+
+void DiffView::loadMore() {
+    TIFF_SCOPED("DiffView::loadMore");
+    bool changed = false;
+    if (m_leftLoadInfo.truncated) {
+        const QStringList more = ::loadMoreLines(m_leftPath, &m_leftLoadInfo);
+        if (!more.isEmpty()) {
+            m_leftLines.append(more);
+            changed = true;
+        }
+    }
+    if (m_rightLoadInfo.truncated) {
+        const QStringList more = ::loadMoreLines(m_rightPath, &m_rightLoadInfo);
+        if (!more.isEmpty()) {
+            m_rightLines.append(more);
+            changed = true;
+        }
+    }
+    if (!changed) return;
+
+    // Preserve scroll position across the rebuild — without this, setPlainText
+    // inside DiffPane::setRows resets the scrollbar to 0.
+    const int leftScroll = m_left->verticalScrollBar()->value();
+    const int rightScroll = m_right->verticalScrollBar()->value();
+
+    auto formatLabel = [](const QString& path, const FileLoadInfo& info) -> QString {
+        if (!info.truncated) return path;
+        const QString sizeStr = QLocale().formattedDataSize(info.totalBytes, 1);
+        const QString capStr = QLocale().toString(kLazyLoadMaxLines);
+        QString prefix;
+        if (info.totalLines > 0) {
+            prefix = QString("[TRUNCATED to %1 of %2 lines, %3]  ")
+                         .arg(capStr, QLocale().toString(info.totalLines), sizeStr);
+        } else {
+            prefix = QString("[TRUNCATED to %1 lines, %2]  ").arg(capStr, sizeStr);
+        }
+        return prefix + path;
+    };
+    m_leftPathLabel->setText(formatLabel(m_leftPath, m_leftLoadInfo));
+    m_rightPathLabel->setText(formatLabel(m_rightPath, m_rightLoadInfo));
+
+    rebuildView();
+
+    m_left->verticalScrollBar()->setValue(leftScroll);
+    m_right->verticalScrollBar()->setValue(rightScroll);
 }
 
 void DiffView::setOptions(Options opts) {

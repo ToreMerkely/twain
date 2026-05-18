@@ -19,6 +19,7 @@ struct DiffRow {
     bool recentlyCopied = false;
     bool partialSelected = false;  // user picked this row for single/multi-line copy
     bool partialNeutral = false;   // row is in a partial-selected block but not picked
+    bool isTruncationMarker = false;  // clickable "load more" row at end of truncated file
 };
 
 class DiffPane : public QPlainTextEdit {
@@ -60,6 +61,7 @@ signals:
     void lineNumberClicked(int row, bool shift);
     void clearPartialRequested();
     void contentEdited();
+    void truncationMarkerClicked();
 
 protected:
     void resizeEvent(QResizeEvent* event) override;

@@ -48,6 +48,8 @@ QColor arrowColor() { return QColor(255, 195, 50); }
 QColor arrowEdgeColor() { return QColor(180, 120, 0); }
 QColor bracketColor() { return QColor(60, 60, 60); }
 QColor partialBgColor() { return QColor(200, 220, 255); }
+QColor truncationBgColor() { return QColor(255, 245, 200); }
+QColor truncationFgColor() { return QColor(120, 90, 0); }
 QColor partialArrowColor() { return QColor(60, 130, 255); }
 QColor partialArrowEdgeColor() { return QColor(20, 70, 160); }
 constexpr int kArrowWidth = 12;
@@ -111,9 +113,11 @@ QStringList DiffPane::extractContent() const {
     int row = 0;
     while (block.isValid()) {
         const bool wasFiller = (row < m_rows.size()) && m_rows[row].filler;
+        const bool isMarker = (row < m_rows.size()) && m_rows[row].isTruncationMarker;
         const QString text = block.text();
         // Pristine empty filler rows aren't part of the file — skip them.
-        if (!(wasFiller && text.isEmpty())) {
+        // Truncation marker rows are UI-only and must never be saved as content.
+        if (!isMarker && !(wasFiller && text.isEmpty())) {
             out.append(text);
         }
         block = block.next();
@@ -177,6 +181,18 @@ void DiffPane::applyRowBackgrounds() {
     for (int i = 0; i < m_rows.size(); ++i, block = block.next()) {
         const auto& r = m_rows[i];
         if (!block.isValid()) continue;
+
+        if (r.isTruncationMarker) {
+            QTextEdit::ExtraSelection sel;
+            sel.format.setBackground(truncationBgColor());
+            sel.format.setForeground(truncationFgColor());
+            sel.format.setFontItalic(true);
+            sel.format.setProperty(QTextFormat::FullWidthSelection, true);
+            sel.cursor = QTextCursor(block);
+            sel.cursor.clearSelection();
+            selections.append(sel);
+            continue;
+        }
 
         if (r.partialSelected) {
             QTextEdit::ExtraSelection sel;
@@ -320,6 +336,15 @@ void DiffPane::keyPressEvent(QKeyEvent* event) {
 }
 
 void DiffPane::mousePressEvent(QMouseEvent* event) {
+    if (event->button() == Qt::LeftButton) {
+        QTextCursor c = cursorForPosition(event->pos());
+        const int row = c.blockNumber();
+        if (row >= 0 && row < m_rows.size() && m_rows[row].isTruncationMarker) {
+            emit truncationMarkerClicked();
+            event->accept();
+            return;
+        }
+    }
     emit clearPartialRequested();
     QPlainTextEdit::mousePressEvent(event);
 }

@@ -57,6 +57,14 @@ public:
         int rightCount = 0;
     };
 
+    struct FileLoadInfo {
+        bool truncated = false;
+        qint64 totalBytes = 0;
+        int totalLines = 0;
+        qint64 streamOffset = 0;
+        QStringList pendingLines;
+    };
+
 signals:
     void currentDifferenceChanged(int index, int total);
     void dirtyChanged(bool dirty);
@@ -82,6 +90,8 @@ private:
 
     QStringList m_leftLines;
     QStringList m_rightLines;
+    FileLoadInfo m_leftLoadInfo;
+    FileLoadInfo m_rightLoadInfo;
     struct ArrowSnapshot {
         QStringList leftLines;
         QStringList rightLines;
@@ -104,6 +114,7 @@ private:
     QSet<int> m_partialRows;
 
     void rebuildView();
+    void loadMore();
     void onArrowClicked(bool fromLeftPane, int row);
     void onLineNumberClicked(bool fromLeftPane, int row, bool shift);
     DiffPane* currentSearchTarget() const;

@@ -34,13 +34,37 @@ QVector<Edit> myersEditScript(const QStringList& a, const QStringList& b) {
 
     if (max == 0) return {};
 
+    auto coarseScript = [&]() {
+        QVector<Edit> edits;
+        edits.reserve(n + m);
+        for (int x = 0; x < n; ++x) edits.append({Op::Delete, x, -1});
+        for (int y = 0; y < m; ++y) edits.append({Op::Insert, -1, y});
+        return edits;
+    };
+
+    // Either side empty: no diff search needed.
+    if (n == 0 || m == 0) return coarseScript();
+
+    // Cap edit distance: Myers is O((N+M)*D) in time and snapshots `v` per
+    // iteration so memory grows as O(D*(N+M)). On lopsided inputs (e.g.
+    // 10,000 lines vs 1) D ≈ max(N,M) and the algorithm allocates hundreds
+    // of MB. Past this cap we emit a coarse delete-all/insert-all script.
+    constexpr int kMaxD = 5000;
+    const int maxD = std::min(max, kMaxD);
+
+    // Edit distance is at least |n - m|; if that already exceeds the cap,
+    // there's no point running the loop — we'd allocate ~maxD copies of v
+    // (each 2*max+1 ints) before giving up.
+    const int absDiff = n > m ? n - m : m - n;
+    if (absDiff > maxD) return coarseScript();
+
     const int offset = max;
     QVector<int> v(2 * max + 1, 0);
     QVector<QVector<int>> trace;
-    trace.reserve(max + 1);
+    trace.reserve(maxD + 1);
 
     int reachedD = -1;
-    for (int d = 0; d <= max; ++d) {
+    for (int d = 0; d <= maxD; ++d) {
         trace.append(v);
         for (int k = -d; k <= d; k += 2) {
             int x;
@@ -62,6 +86,8 @@ QVector<Edit> myersEditScript(const QStringList& a, const QStringList& b) {
         }
         if (reachedD >= 0) break;
     }
+
+    if (reachedD < 0) return coarseScript();
 
     QVector<Edit> edits;
     int x = n, y = m;
