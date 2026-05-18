@@ -1,7 +1,9 @@
 #include "DiffView.h"
 
 #include <QFile>
+#include <QFileSystemWatcher>
 #include <QFont>
+#include <QTimer>
 #include <QFontMetrics>
 #include <QHBoxLayout>
 #include <QKeyEvent>
@@ -157,6 +159,28 @@ DiffView::DiffView(QWidget* parent) : QWidget(parent) {
         const int lineH = m_left->fontMetrics().lineSpacing();
         const int visibleLines = lineH > 0 ? m_left->viewport()->height() / lineH : 0;
         m_overview->setViewport(m_left->verticalScrollBar()->value(), visibleLines);
+    });
+
+    m_watcher = new QFileSystemWatcher(this);
+    connect(m_watcher, &QFileSystemWatcher::fileChanged, this, [this](const QString& path) {
+        // Many editors atomically replace the file (write tmp + rename); the
+        // watcher loses the inode, so re-add the path if it still exists.
+        m_watcher->removePath(path);
+        if (QFile::exists(path)) m_watcher->addPath(path);
+        if (m_ignoreNextWatch) return;
+        if (m_dirty) return;  // don't clobber in-progress edits
+        // Reload, preserving cursor/scroll where possible.
+        const auto leftCtx = m_left->saveCursor();
+        const auto rightCtx = m_right->saveCursor();
+        const int sv = m_left->verticalScrollBar()->value();
+        QString err;
+        if (!setFiles(m_leftPath, m_rightPath, &err)) return;
+        m_left->restoreCursor(leftCtx);
+        m_right->restoreCursor(rightCtx);
+        m_syncing = true;
+        m_left->verticalScrollBar()->setValue(sv);
+        m_right->verticalScrollBar()->setValue(sv);
+        m_syncing = false;
     });
 
     connect(m_left->verticalScrollBar(), &QScrollBar::valueChanged, this,
@@ -457,10 +481,17 @@ bool DiffView::setFiles(const QString& leftPath, const QString& rightPath, QStri
         for (int i = 0; i < rightLines.size(); ++i) rightMap.append(i);
     }
 
+    if (m_watcher && !m_watcher->files().isEmpty()) {
+        m_watcher->removePaths(m_watcher->files());
+    }
     m_leftPath = leftPath;
     m_rightPath = rightPath;
     m_leftLines = leftLines;
     m_rightLines = rightLines;
+    if (m_watcher) {
+        if (!leftPath.isEmpty() && QFile::exists(leftPath)) m_watcher->addPath(leftPath);
+        if (!rightPath.isEmpty() && QFile::exists(rightPath)) m_watcher->addPath(rightPath);
+    }
     m_leftPathLabel->setText(leftPath);
     m_leftPathLabel->setToolTip(leftPath);
     m_rightPathLabel->setText(rightPath);
@@ -796,6 +827,8 @@ bool DiffView::save(QString* error) {
         }
         return true;
     };
+    m_ignoreNextWatch = true;
+    QTimer::singleShot(500, this, [this]() { m_ignoreNextWatch = false; });
     if (!writeOne(m_leftPath, m_leftLines)) return false;
     if (!writeOne(m_rightPath, m_rightLines)) return false;
     setDirty(false);

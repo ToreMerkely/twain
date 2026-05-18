@@ -10,6 +10,7 @@
 
 class DiffOverview;
 class DiffPane;
+class QFileSystemWatcher;
 class QLabel;
 class QLineEdit;
 class QPlainTextEdit;
@@ -73,6 +74,8 @@ private:
     QWidget* m_searchBar = nullptr;
     QLineEdit* m_searchEdit = nullptr;
     QLabel* m_searchStatus = nullptr;
+    QFileSystemWatcher* m_watcher = nullptr;
+    bool m_ignoreNextWatch = false;
     QPlainTextEdit* m_currentLeftLine = nullptr;
     QPlainTextEdit* m_currentRightLine = nullptr;
     bool m_syncing = false;
