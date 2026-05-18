@@ -32,6 +32,9 @@ public:
     Options options() const { return m_options; }
     int differenceCount() const { return m_diffBlocks.size(); }
     int currentDifference() const { return m_currentDiff; }
+    bool isAnyFileTruncated() const {
+        return m_leftLoadInfo.truncated || m_rightLoadInfo.truncated;
+    }
     QString leftPath() const { return m_leftPath; }
     QString rightPath() const { return m_rightPath; }
     bool isDirty() const { return m_dirty; }
@@ -115,6 +118,7 @@ private:
 
     void rebuildView();
     void loadMore();
+    void scrollToBottom();
     void onArrowClicked(bool fromLeftPane, int row);
     void onLineNumberClicked(bool fromLeftPane, int row, bool shift);
     DiffPane* currentSearchTarget() const;

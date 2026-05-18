@@ -614,7 +614,7 @@ void MainWindow::updateForCurrentTab() {
         } else {
             m_diffCountLabel->setText(QString("Diff %1 / %2").arg(cur + 1).arg(n));
         }
-        m_actNextDiff->setEnabled(n > 0);
+        m_actNextDiff->setEnabled(n > 0 || dv->isAnyFileTruncated());
         m_actPrevDiff->setEnabled(n > 0);
         m_actNextDiffFile->setEnabled(true);
         m_actSave->setEnabled(dv->isDirty());

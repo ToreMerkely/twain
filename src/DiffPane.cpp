@@ -102,9 +102,63 @@ void DiffPane::setRows(const QVector<DiffRow>& rows) {
     }
     m_maxSourceLine = maxSrc;
     setPlainText(texts.join('\n'));
+
+    // Apply per-block backgrounds in a single edit so Qt batches layout.
+    QTextCursor c(document());
+    c.beginEditBlock();
+    QTextBlock block = document()->firstBlock();
+    for (int i = 0; i < m_rows.size() && block.isValid(); ++i, block = block.next()) {
+        const auto& r = m_rows[i];
+        QTextBlockFormat bf;
+        if (r.isTruncationMarker) {
+            bf.setBackground(truncationBgColor());
+        } else if (r.partialSelected) {
+            bf.setBackground(partialBgColor());
+        } else if (r.partialNeutral) {
+            // No background: suppresses the kind colour.
+        } else if (r.filler) {
+            bf.setBackground(fillerBrush());
+        } else if (r.kind != Diff::Op::Equal) {
+            bf.setBackground(colorFor(r.kind, false));
+        }
+        c.setPosition(block.position());
+        c.setBlockFormat(bf);
+
+        if (r.isTruncationMarker) {
+            QTextCharFormat cf;
+            cf.setForeground(truncationFgColor());
+            cf.setFontItalic(true);
+            c.setPosition(block.position());
+            c.setPosition(block.position() + block.length() - 1, QTextCursor::KeepAnchor);
+            c.mergeCharFormat(cf);
+        }
+    }
+    c.endEditBlock();
+
     applyRowBackgrounds();
     m_lineNumberArea->update();
     m_loading = false;
+}
+
+void DiffPane::applyBlockBackgroundForRow(int row) {
+    if (row < 0 || row >= m_rows.size()) return;
+    QTextBlock block = document()->findBlockByNumber(row);
+    if (!block.isValid()) return;
+    const auto& r = m_rows[row];
+    QTextBlockFormat bf;
+    if (r.isTruncationMarker) {
+        bf.setBackground(truncationBgColor());
+    } else if (r.partialSelected) {
+        bf.setBackground(partialBgColor());
+    } else if (r.partialNeutral) {
+        // No background.
+    } else if (r.filler) {
+        bf.setBackground(fillerBrush());
+    } else if (r.kind != Diff::Op::Equal) {
+        bf.setBackground(colorFor(r.kind, false));
+    }
+    QTextCursor c(block);
+    c.setBlockFormat(bf);
 }
 
 QStringList DiffPane::extractContent() const {
@@ -173,52 +227,18 @@ void DiffPane::restoreCursor(CursorContext ctx) {
 }
 
 void DiffPane::applyRowBackgrounds() {
+    // Full-row backgrounds live on per-block QTextBlockFormat (set in setRows
+    // and refreshed by applyBlockBackgroundForRow on partial-selection edits).
+    // ExtraSelections are reserved for sparse overlays: intra-line segments
+    // and transient search-match highlights.
     QList<QTextEdit::ExtraSelection> selections;
-    selections.reserve(m_rows.size());
 
     QTextDocument* doc = document();
     QTextBlock block = doc->firstBlock();
     for (int i = 0; i < m_rows.size(); ++i, block = block.next()) {
         const auto& r = m_rows[i];
         if (!block.isValid()) continue;
-
-        if (r.isTruncationMarker) {
-            QTextEdit::ExtraSelection sel;
-            sel.format.setBackground(truncationBgColor());
-            sel.format.setForeground(truncationFgColor());
-            sel.format.setFontItalic(true);
-            sel.format.setProperty(QTextFormat::FullWidthSelection, true);
-            sel.cursor = QTextCursor(block);
-            sel.cursor.clearSelection();
-            selections.append(sel);
-            continue;
-        }
-
-        if (r.partialSelected) {
-            QTextEdit::ExtraSelection sel;
-            sel.format.setBackground(partialBgColor());
-            sel.format.setProperty(QTextFormat::FullWidthSelection, true);
-            sel.cursor = QTextCursor(block);
-            sel.cursor.clearSelection();
-            selections.append(sel);
-        } else if (r.partialNeutral) {
-            // Suppress the normal red/gray background.
-        } else if (r.filler) {
-            QTextEdit::ExtraSelection sel;
-            sel.format.setBackground(fillerBrush());
-            sel.format.setProperty(QTextFormat::FullWidthSelection, true);
-            sel.cursor = QTextCursor(block);
-            sel.cursor.clearSelection();
-            selections.append(sel);
-        } else if (r.kind != Diff::Op::Equal) {
-            QTextEdit::ExtraSelection sel;
-            sel.format.setBackground(colorFor(r.kind, r.filler));
-            sel.format.setProperty(QTextFormat::FullWidthSelection, true);
-            sel.cursor = QTextCursor(block);
-            sel.cursor.clearSelection();
-            selections.append(sel);
-        }
-
+        if (r.isTruncationMarker) continue;
         if (r.partialSelected || r.partialNeutral) continue;
         for (const auto& seg : r.segments) {
             if (!seg.differ) continue;
@@ -380,6 +400,7 @@ void DiffPane::setRowPartial(int row, bool selected, bool neutral) {
     if (r.partialSelected == selected && r.partialNeutral == neutral) return;
     r.partialSelected = selected;
     r.partialNeutral = neutral;
+    applyBlockBackgroundForRow(row);
     applyRowBackgrounds();
     m_lineNumberArea->update();
 }
@@ -394,16 +415,25 @@ bool DiffPane::isRowFiller(int row) const {
     return m_rows[row].filler;
 }
 
+bool DiffPane::isCursorOnTruncationMarker() const {
+    const int row = textCursor().blockNumber();
+    return row >= 0 && row < m_rows.size() && m_rows[row].isTruncationMarker;
+}
+
 void DiffPane::clearAllPartial() {
     bool changed = false;
-    for (auto& r : m_rows) {
+    QVector<int> touched;
+    for (int i = 0; i < m_rows.size(); ++i) {
+        auto& r = m_rows[i];
         if (r.partialSelected || r.partialNeutral) {
             r.partialSelected = false;
             r.partialNeutral = false;
+            touched.append(i);
             changed = true;
         }
     }
     if (changed) {
+        for (int row : touched) applyBlockBackgroundForRow(row);
         applyRowBackgrounds();
         m_lineNumberArea->update();
     }

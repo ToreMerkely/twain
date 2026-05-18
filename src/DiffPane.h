@@ -55,6 +55,7 @@ public:
     void clearAllPartial();
     int sourceLineAtRow(int row) const;
     bool isRowFiller(int row) const;
+    bool isCursorOnTruncationMarker() const;
 
 signals:
     void arrowClicked(int row);
@@ -75,6 +76,7 @@ private slots:
 
 private:
     void applyRowBackgrounds();
+    void applyBlockBackgroundForRow(int row);
 
     QWidget* m_lineNumberArea;
     QVector<DiffRow> m_rows;

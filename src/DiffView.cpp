@@ -822,6 +822,9 @@ void DiffView::loadMore() {
 
     m_left->verticalScrollBar()->setValue(leftScroll);
     m_right->verticalScrollBar()->setValue(rightScroll);
+
+    // diff count or truncation status may have changed; let the chrome update.
+    emit currentDifferenceChanged(m_currentDiff, m_diffBlocks.size());
 }
 
 void DiffView::setOptions(Options opts) {
@@ -832,9 +835,46 @@ void DiffView::setOptions(Options opts) {
 }
 
 void DiffView::nextDifference() {
-    if (m_diffBlocks.isEmpty()) return;
-    if (m_currentDiff + 1 >= m_diffBlocks.size()) return;
-    goToDiff(m_currentDiff + 1);
+    const bool truncated = m_leftLoadInfo.truncated || m_rightLoadInfo.truncated;
+    const bool onMarker = m_left->isCursorOnTruncationMarker() ||
+                          m_right->isCursorOnTruncationMarker();
+
+    // Cursor on the marker → trigger loadMore, then re-anchor to the new marker.
+    if (onMarker && truncated) {
+        loadMore();
+        scrollToBottom();
+        return;
+    }
+
+    // Advance past diffs the cursor is already sitting on (rowStart) — a
+    // single press shouldn't be a no-op just because the first diff happens
+    // to be at row 0 where the cursor lands on file open.
+    const int cursorRow = m_left->textCursor().blockNumber();
+    int target = m_currentDiff + 1;
+    while (target < m_diffBlocks.size() &&
+           m_diffBlocks[target].rowStart <= cursorRow) {
+        ++target;
+    }
+
+    if (target < m_diffBlocks.size()) {
+        goToDiff(target);
+        return;
+    }
+
+    if (truncated) scrollToBottom();
+}
+
+void DiffView::scrollToBottom() {
+    const int lastRow = m_left->document()->blockCount() - 1;
+    if (lastRow <= 0) return;
+    QTextCursor c(m_left->document()->findBlockByNumber(lastRow));
+    m_left->setTextCursor(c);
+    QScrollBar* vb = m_left->verticalScrollBar();
+    vb->setValue(vb->maximum());
+    m_left->setFocus();
+    m_syncing = true;
+    m_right->verticalScrollBar()->setValue(vb->value());
+    m_syncing = false;
 }
 
 void DiffView::prevDifference() {
