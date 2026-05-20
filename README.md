@@ -110,3 +110,7 @@ Under the **View** menu:
 - **Ignore Blank Lines** — drop blank lines before diffing
 
 These are persisted across sessions and apply to all open diff tabs.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
