@@ -47,6 +47,11 @@ int main(int argc, char** argv) {
 
     MainWindow window;
     window.show();
+    // Drain initial layout/paint events so the window arrives on screen with
+    // its chrome already drawn. Without this, some X11 compositors map the
+    // window before Qt's first paint pass, briefly showing whatever was in
+    // the underlying buffer (often the previous app's content).
+    QApplication::processEvents();
 
     const QStringList pos = parser.positionalArguments();
     if (pos.size() >= 2) {
