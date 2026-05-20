@@ -117,7 +117,8 @@ void DiffPane::setRows(const QVector<DiffRow>& rows) {
         } else if (r.partialNeutral) {
             // No background: suppresses the kind colour.
         } else if (r.filler) {
-            bf.setBackground(fillerBrush());
+            // No per-block background: filler hatch is painted in paintEvent
+            // so the diagonal lines align continuously across rows.
         } else if (r.kind != Diff::Op::Equal) {
             bf.setBackground(colorFor(r.kind, false));
         }
@@ -153,7 +154,7 @@ void DiffPane::applyBlockBackgroundForRow(int row) {
     } else if (r.partialNeutral) {
         // No background.
     } else if (r.filler) {
-        bf.setBackground(fillerBrush());
+        // Painted in paintEvent so the diagonal pattern stays continuous.
     } else if (r.kind != Diff::Op::Equal) {
         bf.setBackground(colorFor(r.kind, false));
     }
@@ -388,6 +389,36 @@ void DiffPane::wheelEvent(QWheelEvent* event) {
         }
     }
     QPlainTextEdit::wheelEvent(event);
+}
+
+void DiffPane::paintEvent(QPaintEvent* event) {
+    QPlainTextEdit::paintEvent(event);
+
+    // Paint filler hatch ourselves (instead of via per-block QTextBlockFormat
+    // backgrounds) so the BDiagPattern tile origin stays fixed across rows.
+    // With a per-block background Qt restarts the pattern at each block rect,
+    // so consecutive filler rows show disconnected '/' strokes. Filler rows
+    // are empty, so overlaying the hatch on top of the base render is safe.
+    QPainter painter(viewport());
+    painter.setBrushOrigin(0, 0);
+    const QBrush hatch = fillerBrush();
+
+    QTextBlock block = firstVisibleBlock();
+    int blockNumber = block.blockNumber();
+    int top = qRound(blockBoundingGeometry(block).translated(contentOffset()).top());
+    int bottom = top + qRound(blockBoundingRect(block).height());
+
+    const int w = viewport()->width();
+    while (block.isValid() && top <= event->rect().bottom()) {
+        if (block.isVisible() && bottom >= event->rect().top() &&
+            blockNumber < m_rows.size() && m_rows[blockNumber].filler) {
+            painter.fillRect(QRect(0, top, w, bottom - top), hatch);
+        }
+        block = block.next();
+        top = bottom;
+        bottom = top + qRound(blockBoundingRect(block).height());
+        ++blockNumber;
+    }
 }
 
 int DiffPane::arrowZoneLeft() const {
