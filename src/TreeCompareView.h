@@ -45,6 +45,9 @@ signals:
     void fileActivated(const QString& leftPath, const QString& rightPath);
     void comparisonUpdated();
 
+protected:
+    bool eventFilter(QObject* obj, QEvent* event) override;
+
 private slots:
     void onLeftExpanded(const QModelIndex& index);
     void onLeftCollapsed(const QModelIndex& index);

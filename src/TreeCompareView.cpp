@@ -5,6 +5,7 @@
 #include <QPainter>
 #include <QScrollBar>
 #include <QSplitter>
+#include <QKeyEvent>
 #include <QTreeView>
 #include <QWheelEvent>
 
@@ -138,8 +139,36 @@ TreeCompareView::TreeCompareView(QWidget* parent) : QWidget(parent) {
     connect(m_right, &QTreeView::expanded, this, &TreeCompareView::onRightExpanded);
     connect(m_right, &QTreeView::collapsed, this, &TreeCompareView::onRightCollapsed);
 
-    connect(m_left, &QTreeView::activated, this, &TreeCompareView::onDoubleClicked);
-    connect(m_right, &QTreeView::activated, this, &TreeCompareView::onDoubleClicked);
+    // doubleClicked is unambiguous: fires only on mouse double-click. The
+    // older `activated` signal had platform-dependent semantics that didn't
+    // fire reliably on every desktop. We restore Enter-key activation via an
+    // event filter below.
+    connect(m_left, &QTreeView::doubleClicked, this, &TreeCompareView::onDoubleClicked);
+    connect(m_right, &QTreeView::doubleClicked, this, &TreeCompareView::onDoubleClicked);
+    m_left->installEventFilter(this);
+    m_right->installEventFilter(this);
+}
+
+bool TreeCompareView::eventFilter(QObject* obj, QEvent* event) {
+    if ((obj == m_left || obj == m_right) && event->type() == QEvent::KeyPress) {
+        auto* ke = static_cast<QKeyEvent*>(event);
+        if (ke->key() == Qt::Key_Return || ke->key() == Qt::Key_Enter) {
+            auto* tv = static_cast<QTreeView*>(obj);
+            const QModelIndex idx = tv->currentIndex();
+            if (idx.isValid()) {
+                if (const auto* e = m_model->entryFor(idx)) {
+                    if (e->isDir) {
+                        if (tv->isExpanded(idx)) tv->collapse(idx);
+                        else tv->expand(idx);
+                    } else if (!e->leftPath.isEmpty() || !e->rightPath.isEmpty()) {
+                        emit fileActivated(e->leftPath, e->rightPath);
+                    }
+                    return true;
+                }
+            }
+        }
+    }
+    return QWidget::eventFilter(obj, event);
 }
 
 void TreeCompareView::onLeftExpanded(const QModelIndex& index) {
