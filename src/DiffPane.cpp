@@ -405,18 +405,18 @@ void DiffPane::paintEvent(QPaintEvent* event) {
 
     QTextBlock block = firstVisibleBlock();
     int blockNumber = block.blockNumber();
-    int top = qRound(blockBoundingGeometry(block).translated(contentOffset()).top());
-    int bottom = top + qRound(blockBoundingRect(block).height());
-
+    const QPointF offset = contentOffset();
     const int w = viewport()->width();
-    while (block.isValid() && top <= event->rect().bottom()) {
+    while (block.isValid()) {
+        const QRectF geom = blockBoundingGeometry(block).translated(offset);
+        const int top = qRound(geom.top());
+        const int bottom = qRound(geom.bottom());
+        if (top > event->rect().bottom()) break;
         if (block.isVisible() && bottom >= event->rect().top() &&
             blockNumber < m_rows.size() && m_rows[blockNumber].filler) {
             painter.fillRect(QRect(0, top, w, bottom - top), hatch);
         }
         block = block.next();
-        top = bottom;
-        bottom = top + qRound(blockBoundingRect(block).height());
         ++blockNumber;
     }
 }
