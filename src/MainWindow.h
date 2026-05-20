@@ -92,6 +92,9 @@ private:
     QAction* m_actIgnoreCase = nullptr;
     QAction* m_actIgnoreWhitespace = nullptr;
     QAction* m_actIgnoreBlankLines = nullptr;
+    QAction* m_actZoomIn = nullptr;
+    QAction* m_actZoomOut = nullptr;
+    QAction* m_actZoomReset = nullptr;
     QAction* m_actAbout = nullptr;
     QAction* m_actGitDifftool = nullptr;
 

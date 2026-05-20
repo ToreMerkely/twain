@@ -1,10 +1,14 @@
 #include "DiffView.h"
 
+#include <QApplication>
 #include <QFile>
 #include <QFileInfo>
 #include <QFileSystemWatcher>
 #include <QFont>
 #include <QLocale>
+#include <QMainWindow>
+#include <QSettings>
+#include <QStatusBar>
 #include <QTimer>
 #include <QFontMetrics>
 #include <QHBoxLayout>
@@ -28,6 +32,69 @@
 #include "Diff.h"
 #include "DiffOverview.h"
 #include "DiffPane.h"
+#include "TreeCompareView.h"
+
+namespace {
+constexpr int kDefaultDiffPt = 10;
+constexpr int kMinDiffPt = 6;
+constexpr int kMaxDiffPt = 32;
+
+// Lazily-loaded cache backed by QSettings. -1 sentinel = not yet loaded.
+int& diffPtCache() {
+    static int v = -1;
+    return v;
+}
+
+// The bottom current-line widgets render 1pt smaller than the diff panes;
+// preserve that delta on zoom.
+int bottomPtFor(int diffPt) { return std::max(kMinDiffPt, diffPt - 1); }
+}  // namespace
+
+int DiffView::diffFontPt() {
+    int& v = diffPtCache();
+    if (v < 0) {
+        v = std::clamp(QSettings().value("diff/fontPt", kDefaultDiffPt).toInt(),
+                       kMinDiffPt, kMaxDiffPt);
+    }
+    return v;
+}
+
+void DiffView::setDiffFontPt(int pt) {
+    pt = std::clamp(pt, kMinDiffPt, kMaxDiffPt);
+    if (pt == diffFontPt()) return;
+    diffPtCache() = pt;
+    QSettings().setValue("diff/fontPt", pt);
+    const QString msg = QString("Zoom: %1pt").arg(pt);
+    for (auto* w : qApp->topLevelWidgets()) {
+        for (auto* dv : w->findChildren<DiffView*>()) {
+            dv->applyDiffFontSize();
+        }
+        for (auto* tcv : w->findChildren<TreeCompareView*>()) {
+            tcv->applyDiffFontSize();
+        }
+        if (auto* mw = qobject_cast<QMainWindow*>(w)) {
+            mw->statusBar()->showMessage(msg, 1500);
+        }
+    }
+}
+
+void DiffView::adjustDiffFontPt(int delta) {
+    setDiffFontPt(diffFontPt() + delta);
+}
+
+void DiffView::applyDiffFontSize() {
+    const int pt = diffFontPt();
+    m_left->setDiffFontPointSize(pt);
+    m_right->setDiffFontPointSize(pt);
+
+    QFont bottomFont = m_currentLeftLine->font();
+    bottomFont.setPointSize(bottomPtFor(pt));
+    const int oneLineHeight = QFontMetrics(bottomFont).height() + 4;
+    m_currentLeftLine->setFont(bottomFont);
+    m_currentLeftLine->setFixedHeight(oneLineHeight);
+    m_currentRightLine->setFont(bottomFont);
+    m_currentRightLine->setFixedHeight(oneLineHeight);
+}
 
 DiffView::DiffView(QWidget* parent) : QWidget(parent) {
     m_splitter = new QSplitter(Qt::Horizontal, this);
@@ -59,7 +126,7 @@ DiffView::DiffView(QWidget* parent) : QWidget(parent) {
     m_splitter->addWidget(rightContainer);
     m_splitter->setSizes({1, 1});
 
-    QFont monoFont("Noto Sans Mono", 10);
+    QFont monoFont("Noto Sans Mono", bottomPtFor(diffFontPt()));
     monoFont.setStyleHint(QFont::Monospace);
     const int oneLineHeight = QFontMetrics(monoFont).height() + 4;
     auto makeLineWidget = [&]() {

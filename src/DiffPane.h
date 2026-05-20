@@ -51,6 +51,9 @@ public:
     int lineNumberAreaWidth() const;
     int arrowZoneLeft() const;
 
+    // Sets the font to point size `pt` and updates tab width + gutter width.
+    void setDiffFontPointSize(int pt);
+
     void setRowPartial(int row, bool selected, bool neutral);
     void clearAllPartial();
     int sourceLineAtRow(int row) const;

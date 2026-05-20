@@ -13,6 +13,8 @@
 #include <QTextCharFormat>
 #include <QTextCursor>
 
+#include "DiffView.h"
+
 namespace {
 
 class LineNumberArea : public QWidget {
@@ -61,7 +63,7 @@ constexpr int kArrowNotch = 3;
 }  // namespace
 
 DiffPane::DiffPane(QWidget* parent) : QPlainTextEdit(parent) {
-    QFont font("Noto Sans Mono", 11);
+    QFont font("Noto Sans Mono", DiffView::diffFontPt());
     font.setStyleHint(QFont::Monospace);
     setFont(font);
     setTabStopDistance(fontMetrics().horizontalAdvance(' ') * 4);
@@ -370,7 +372,24 @@ void DiffPane::mousePressEvent(QMouseEvent* event) {
     QPlainTextEdit::mousePressEvent(event);
 }
 
+void DiffPane::setDiffFontPointSize(int pt) {
+    QFont f = font();
+    if (f.pointSize() == pt) return;
+    f.setPointSize(pt);
+    setFont(f);
+    setTabStopDistance(fontMetrics().horizontalAdvance(' ') * 4);
+    updateLineNumberAreaWidth();
+}
+
 void DiffPane::wheelEvent(QWheelEvent* event) {
+    if (event->modifiers() & Qt::ControlModifier) {
+        const int y = event->angleDelta().y();
+        if (y != 0) {
+            DiffView::adjustDiffFontPt(y > 0 ? 1 : -1);
+            event->accept();
+            return;
+        }
+    }
     if (event->modifiers() & Qt::ShiftModifier) {
         QScrollBar* hbar = horizontalScrollBar();
         const QPoint pixels = event->pixelDelta();

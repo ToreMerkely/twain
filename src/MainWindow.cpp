@@ -255,6 +255,25 @@ void MainWindow::createActions() {
     m_actIgnoreWhitespace = makeToggle("Ignore &Whitespace");
     m_actIgnoreBlankLines = makeToggle("Ignore &Blank Lines");
 
+    m_actZoomIn = new QAction("Zoom &In", this);
+    m_actZoomIn->setShortcuts({QKeySequence(Qt::CTRL | Qt::Key_Plus),
+                               QKeySequence(Qt::CTRL | Qt::Key_Equal)});
+    connect(m_actZoomIn, &QAction::triggered, this,
+            []() { DiffView::adjustDiffFontPt(+1); });
+    addAction(m_actZoomIn);
+
+    m_actZoomOut = new QAction("Zoom &Out", this);
+    m_actZoomOut->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_Minus));
+    connect(m_actZoomOut, &QAction::triggered, this,
+            []() { DiffView::adjustDiffFontPt(-1); });
+    addAction(m_actZoomOut);
+
+    m_actZoomReset = new QAction("&Reset Zoom", this);
+    m_actZoomReset->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_0));
+    connect(m_actZoomReset, &QAction::triggered, this,
+            []() { DiffView::setDiffFontPt(10); });
+    addAction(m_actZoomReset);
+
     m_actAbout = new QAction("&About", this);
     connect(m_actAbout, &QAction::triggered, this, &MainWindow::showAbout);
 
@@ -287,6 +306,10 @@ void MainWindow::createMenus() {
     viewMenu->addAction(m_actIgnoreCase);
     viewMenu->addAction(m_actIgnoreWhitespace);
     viewMenu->addAction(m_actIgnoreBlankLines);
+    viewMenu->addSeparator();
+    viewMenu->addAction(m_actZoomIn);
+    viewMenu->addAction(m_actZoomOut);
+    viewMenu->addAction(m_actZoomReset);
 
     auto* helpMenu = menuBar()->addMenu("&Help");
     helpMenu->addAction(m_actGitDifftool);

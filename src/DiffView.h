@@ -46,6 +46,16 @@ public:
     void nextDifference();
     void prevDifference();
 
+    // App-wide diff font size (point size). Reads from / writes to QSettings,
+    // then broadcasts to every DiffView in the application so all open tabs
+    // re-render at the new size together.
+    static int diffFontPt();
+    static void setDiffFontPt(int pt);
+    static void adjustDiffFontPt(int delta);
+
+    // Apply the current diff font size to this view's panes and bottom row.
+    void applyDiffFontSize();
+
     QByteArray saveSplitterState() const;
     void restoreSplitterState(const QByteArray& state);
 

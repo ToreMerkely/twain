@@ -38,6 +38,9 @@ public:
 
     void focusTree();
 
+    // Apply the current diff font size (managed by DiffView) to both trees.
+    void applyDiffFontSize();
+
 signals:
     void fileActivated(const QString& leftPath, const QString& rightPath);
     void comparisonUpdated();

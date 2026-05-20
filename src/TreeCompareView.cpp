@@ -6,7 +6,9 @@
 #include <QScrollBar>
 #include <QSplitter>
 #include <QTreeView>
+#include <QWheelEvent>
 
+#include "DiffView.h"
 #include "TreeCompareModel.h"
 
 namespace {
@@ -16,6 +18,18 @@ public:
     using QTreeView::QTreeView;
 
 protected:
+    void wheelEvent(QWheelEvent* event) override {
+        if (event->modifiers() & Qt::ControlModifier) {
+            const int y = event->angleDelta().y();
+            if (y != 0) {
+                DiffView::adjustDiffFontPt(y > 0 ? 1 : -1);
+                event->accept();
+                return;
+            }
+        }
+        QTreeView::wheelEvent(event);
+    }
+
     void drawBranches(QPainter* painter, const QRect& rect, const QModelIndex& index) const override {
         QTreeView::drawBranches(painter, rect, index);
 
@@ -78,6 +92,7 @@ TreeCompareView::TreeCompareView(QWidget* parent) : QWidget(parent) {
         tv->setExpandsOnDoubleClick(false);
         tv->header()->setStretchLastSection(false);
     }
+    applyDiffFontSize();
     m_left->hideColumn(TreeCompareModel::kColRightName);
     m_left->hideColumn(TreeCompareModel::kColRightSize);
     m_left->hideColumn(TreeCompareModel::kColRightMTime);
@@ -323,4 +338,11 @@ void TreeCompareView::restoreHeaderState(const QByteArray& state) {
     r->setSectionResizeMode(TreeCompareModel::kColRightName, QHeaderView::Stretch);
     r->setSectionResizeMode(TreeCompareModel::kColRightSize, QHeaderView::ResizeToContents);
     r->setSectionResizeMode(TreeCompareModel::kColRightMTime, QHeaderView::ResizeToContents);
+}
+
+void TreeCompareView::applyDiffFontSize() {
+    QFont f = m_left->font();
+    f.setPointSize(DiffView::diffFontPt());
+    m_left->setFont(f);
+    m_right->setFont(f);
 }
