@@ -278,7 +278,7 @@ static QStringList streamLines(QFile& f, int maxLines) {
 
 static QStringList readFileLinesStreaming(QFile& f, FileLoadInfo* info, bool* ok, QString* err,
                                           const QString& path) {
-    TIFF_SCOPED_VAR(_t, "  readFileLines.streaming");
+    TWAIN_SCOPED_VAR(_t, "  readFileLines.streaming");
     // Probe the head for binary content before committing to the read.
     const QByteArray probe = f.peek(8192);
     if (looksBinary(probe)) {
@@ -290,7 +290,7 @@ static QStringList readFileLinesStreaming(QFile& f, FileLoadInfo* info, bool* ok
     info->streamOffset = f.pos();
     info->truncated = !f.atEnd();
     if (ok) *ok = true;
-    TIFF_SCOPED_NOTE(_t, QString("lines=%1 truncated=%2")
+    TWAIN_SCOPED_NOTE(_t, QString("lines=%1 truncated=%2")
                              .arg(lines.size()).arg(info->truncated ? "yes" : "no"));
     return lines;
 }
@@ -299,7 +299,7 @@ static QStringList readFileLinesStreaming(QFile& f, FileLoadInfo* info, bool* ok
 // file is already in info->pendingLines; for the streaming path we reopen the
 // file and resume from info->streamOffset.
 static QStringList loadMoreLines(const QString& path, FileLoadInfo* info) {
-    TIFF_SCOPED_VAR(_t, "loadMoreLines");
+    TWAIN_SCOPED_VAR(_t, "loadMoreLines");
     if (!info || !info->truncated) return {};
     QStringList more;
     if (!info->pendingLines.isEmpty()) {
@@ -316,7 +316,7 @@ static QStringList loadMoreLines(const QString& path, FileLoadInfo* info) {
         info->streamOffset = f.pos();
         info->truncated = !f.atEnd();
     }
-    TIFF_SCOPED_NOTE(_t, QString("path=%1 more=%2 truncated=%3")
+    TWAIN_SCOPED_NOTE(_t, QString("path=%1 more=%2 truncated=%3")
                              .arg(path).arg(more.size())
                              .arg(info->truncated ? "yes" : "no"));
     return more;
@@ -324,7 +324,7 @@ static QStringList loadMoreLines(const QString& path, FileLoadInfo* info) {
 
 static QStringList readFileLines(const QString& path, FileLoadInfo* info,
                                  bool* ok, QString* err) {
-    TIFF_SCOPED_VAR(_t, "readFileLines");
+    TWAIN_SCOPED_VAR(_t, "readFileLines");
     if (info) *info = {};
     QFile f(path);
     if (!f.open(QIODevice::ReadOnly)) {
@@ -337,7 +337,7 @@ static QStringList readFileLines(const QString& path, FileLoadInfo* info,
 
     if (totalBytes > kLazyLoadThresholdBytes) {
         QStringList lines = readFileLinesStreaming(f, info, ok, err, path);
-        TIFF_SCOPED_NOTE(_t, QString("path=%1 bytes=%2 lines=%3 truncated=%4")
+        TWAIN_SCOPED_NOTE(_t, QString("path=%1 bytes=%2 lines=%3 truncated=%4")
                                  .arg(path).arg(totalBytes).arg(lines.size())
                                  .arg(info && info->truncated ? "yes" : "no"));
         return lines;
@@ -345,7 +345,7 @@ static QStringList readFileLines(const QString& path, FileLoadInfo* info,
 
     QByteArray bytes;
     {
-        TIFF_SCOPED("  readFileLines.readAll");
+        TWAIN_SCOPED("  readFileLines.readAll");
         bytes = f.readAll();
     }
     if (looksBinary(bytes)) {
@@ -355,17 +355,17 @@ static QStringList readFileLines(const QString& path, FileLoadInfo* info,
     }
     QString text;
     {
-        TIFF_SCOPED("  readFileLines.decodeUtf8");
+        TWAIN_SCOPED("  readFileLines.decodeUtf8");
         text = QString::fromUtf8(bytes);
     }
     if (text.contains('\r')) {
-        TIFF_SCOPED("  readFileLines.normalizeLineEndings");
+        TWAIN_SCOPED("  readFileLines.normalizeLineEndings");
         text.replace("\r\n", "\n");
         text.replace('\r', '\n');
     }
     QStringList lines;
     {
-        TIFF_SCOPED("  readFileLines.split");
+        TWAIN_SCOPED("  readFileLines.split");
         lines = text.split('\n');
     }
     // split() leaves a trailing empty element when text ends with '\n' — drop it
@@ -380,7 +380,7 @@ static QStringList readFileLines(const QString& path, FileLoadInfo* info,
         }
         lines.resize(kLazyLoadMaxLines);
     }
-    TIFF_SCOPED_NOTE(_t, QString("path=%1 bytes=%2 lines=%3 truncated=%4")
+    TWAIN_SCOPED_NOTE(_t, QString("path=%1 bytes=%2 lines=%3 truncated=%4")
                              .arg(path).arg(bytes.size()).arg(lines.size())
                              .arg(info && info->truncated ? "yes" : "no"));
     if (ok) *ok = true;
@@ -388,7 +388,7 @@ static QStringList readFileLines(const QString& path, FileLoadInfo* info,
 }
 
 static void filterBlanks(const QStringList& orig, QStringList* out, QVector<int>* origIdx) {
-    TIFF_SCOPED_VAR(_t, "filterBlanks");
+    TWAIN_SCOPED_VAR(_t, "filterBlanks");
     out->clear();
     origIdx->clear();
     out->reserve(orig.size());
@@ -399,7 +399,7 @@ static void filterBlanks(const QStringList& orig, QStringList* out, QVector<int>
             origIdx->append(i);
         }
     }
-    TIFF_SCOPED_NOTE(_t, QString("in=%1 out=%2").arg(orig.size()).arg(out->size()));
+    TWAIN_SCOPED_NOTE(_t, QString("in=%1 out=%2").arg(orig.size()).arg(out->size()));
 }
 
 struct AlignedBuildResult {
@@ -423,7 +423,7 @@ static AlignedBuildResult buildAlignedRows(
     const QVector<Diff::Hunk>& hunks, Diff::Options diffOpts,
     HighlightRange highlight,
     QVector<DiffRow>& leftRows, QVector<DiffRow>& rightRows) {
-    TIFF_SCOPED_VAR(_tBuild, "buildAlignedRows");
+    TWAIN_SCOPED_VAR(_tBuild, "buildAlignedRows");
     AlignedBuildResult res;
     leftRows.clear();
     rightRows.clear();
@@ -576,7 +576,7 @@ static AlignedBuildResult buildAlignedRows(
         res.blocks.append(block);
     }
 #ifdef TWAIN_DEBUG
-    TIFF_SCOPED_NOTE(_tBuild,
+    TWAIN_SCOPED_NOTE(_tBuild,
         QString("blocks=%1 rows=%2 lineDiff(n=%3,total=%4ms) alignBlock(n=%5,total=%6ms)")
             .arg(res.blocks.size())
             .arg(leftRows.size())
@@ -589,8 +589,8 @@ static AlignedBuildResult buildAlignedRows(
 }
 
 bool DiffView::setFiles(const QString& leftPath, const QString& rightPath, QString* error) {
-    TIFF_LOG(QString("setFiles begin left=%1 right=%2").arg(leftPath, rightPath));
-    TIFF_SCOPED("DiffView::setFiles");
+    TWAIN_LOG(QString("setFiles begin left=%1 right=%2").arg(leftPath, rightPath));
+    TWAIN_SCOPED("DiffView::setFiles");
     QStringList leftLines, rightLines;
     FileLoadInfo leftInfo, rightInfo;
     if (!leftPath.isEmpty()) {
@@ -684,7 +684,7 @@ bool DiffView::setFiles(const QString& leftPath, const QString& rightPath, QStri
 }
 
 void DiffView::rebuildView() {
-    TIFF_SCOPED_VAR(_tRebuild, "DiffView::rebuildView");
+    TWAIN_SCOPED_VAR(_tRebuild, "DiffView::rebuildView");
     m_partialBlockIdx = -1;
     m_partialRows.clear();
     m_partialAnchorRow = -1;
@@ -707,9 +707,9 @@ void DiffView::rebuildView() {
 
     QVector<Diff::Hunk> hunks;
     {
-        TIFF_SCOPED_VAR(_tCompute, "Diff::compute");
+        TWAIN_SCOPED_VAR(_tCompute, "Diff::compute");
         hunks = Diff::compute(compareLeft, compareRight, diffOpts);
-        TIFF_SCOPED_NOTE(_tCompute, QString("nL=%1 nR=%2 hunks=%3")
+        TWAIN_SCOPED_NOTE(_tCompute, QString("nL=%1 nR=%2 hunks=%3")
                                         .arg(compareLeft.size())
                                         .arg(compareRight.size())
                                         .arg(hunks.size()));
@@ -758,11 +758,11 @@ void DiffView::rebuildView() {
     }
 
     {
-        TIFF_SCOPED("DiffPane::setRows left");
+        TWAIN_SCOPED("DiffPane::setRows left");
         m_left->setRows(leftRows);
     }
     {
-        TIFF_SCOPED("DiffPane::setRows right");
+        TWAIN_SCOPED("DiffPane::setRows right");
         m_right->setRows(rightRows);
     }
 
@@ -779,7 +779,7 @@ void DiffView::rebuildView() {
 }
 
 void DiffView::loadMore() {
-    TIFF_SCOPED("DiffView::loadMore");
+    TWAIN_SCOPED("DiffView::loadMore");
     bool changed = false;
     if (m_leftLoadInfo.truncated) {
         const QStringList more = ::loadMoreLines(m_leftPath, &m_leftLoadInfo);

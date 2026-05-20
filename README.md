@@ -1,5 +1,7 @@
 # twain
 
+> *"…and never the twain shall meet."* — Rudyard Kipling
+
 A simple diff tool for Linux. Side-by-side file diff with
 intra-line highlighting, side-by-side folder tree compare with synced
 expand/scroll/selection, and click-arrow-to-merge editing.

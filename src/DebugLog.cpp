@@ -64,7 +64,7 @@ ScopedTimer::~ScopedTimer() {
     const double ms = std::chrono::duration<double, std::milli>(end - m_start).count();
     QString line = QString("%1: %2 ms").arg(QString::fromLatin1(m_name)).arg(ms, 0, 'f', 2);
     if (!m_extra.isEmpty()) line += " (" + m_extra + ")";
-    TIFF_LOG(line);
+    TWAIN_LOG(line);
 }
 
 }  // namespace DebugLog
