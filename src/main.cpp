@@ -1,6 +1,7 @@
 #include <QApplication>
 #include <QCommandLineParser>
 #include <QFileInfo>
+#include <QIcon>
 #include <QStringList>
 #include <QTextStream>
 #include <QTimer>
@@ -13,6 +14,7 @@ int main(int argc, char** argv) {
     app.setApplicationName("twain");
     app.setApplicationVersion("0.4.0");
     app.setOrganizationName("twain");
+    app.setWindowIcon(QIcon(":/icons/twain.svg"));
     DebugLog::init();
 
     QCommandLineParser parser;
