@@ -839,26 +839,38 @@ void DiffView::nextDifference() {
     const bool onMarker = m_left->isCursorOnTruncationMarker() ||
                           m_right->isCursorOnTruncationMarker();
 
-    // Cursor on the marker → trigger loadMore, then re-anchor to the new marker.
     if (onMarker && truncated) {
+        // Markers always sit at the bottom, so this row is where the newly
+        // loaded content will begin.
+        const int markerRow = m_left->textCursor().blockNumber();
         loadMore();
+        const bool stillTruncated =
+            m_leftLoadInfo.truncated || m_rightLoadInfo.truncated;
+        if (stillTruncated) {
+            scrollToBottom();
+            return;
+        }
+        // File is now fully loaded: jump to the first diff in the newly
+        // revealed region (which is what Ctrl+N was meant to reach).
+        for (int i = 0; i < m_diffBlocks.size(); ++i) {
+            if (m_diffBlocks[i].rowStart >= markerRow) {
+                goToDiff(i);
+                return;
+            }
+        }
         scrollToBottom();
         return;
     }
 
-    // Advance past diffs the cursor is already sitting on (rowStart) — a
-    // single press shouldn't be a no-op just because the first diff happens
-    // to be at row 0 where the cursor lands on file open.
+    // Find the first diff strictly past the cursor row. Using cursor row
+    // (rather than m_currentDiff) keeps navigation in sync after manual
+    // scrolling, clicking, or a loadMore that moved the cursor.
     const int cursorRow = m_left->textCursor().blockNumber();
-    int target = m_currentDiff + 1;
-    while (target < m_diffBlocks.size() &&
-           m_diffBlocks[target].rowStart <= cursorRow) {
-        ++target;
-    }
-
-    if (target < m_diffBlocks.size()) {
-        goToDiff(target);
-        return;
+    for (int i = 0; i < m_diffBlocks.size(); ++i) {
+        if (m_diffBlocks[i].rowStart > cursorRow) {
+            goToDiff(i);
+            return;
+        }
     }
 
     if (truncated) scrollToBottom();
@@ -879,8 +891,13 @@ void DiffView::scrollToBottom() {
 
 void DiffView::prevDifference() {
     if (m_diffBlocks.isEmpty()) return;
-    if (m_currentDiff <= 0) return;
-    goToDiff(m_currentDiff - 1);
+    const int cursorRow = m_left->textCursor().blockNumber();
+    for (int i = m_diffBlocks.size() - 1; i >= 0; --i) {
+        if (m_diffBlocks[i].rowStart < cursorRow) {
+            goToDiff(i);
+            return;
+        }
+    }
 }
 
 void DiffView::goToDiff(int index) {
