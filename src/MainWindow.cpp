@@ -18,17 +18,64 @@
 #include <QMessageBox>
 #include <QKeyEvent>
 #include <QPlainTextEdit>
+#include <QEventLoop>
+#include <QPainter>
+#include <QProcess>
 #include <QPushButton>
 #include <QSettings>
 #include <QShortcut>
 #include <QStatusBar>
 #include <QStyle>
 #include <QTabWidget>
+#include <QTemporaryDir>
+#include <QTimer>
 #include <QToolBar>
 
 #include "TreeCompareModel.h"
 
 namespace {
+
+// A status-bar busy indicator that draws a blue box sweeping back and forth.
+// Starts/stops its internal timer when shown/hidden, so callers only need to
+// toggle visibility.
+class BusyIndicator : public QWidget {
+public:
+    explicit BusyIndicator(QWidget* parent = nullptr) : QWidget(parent) {
+        setFixedSize(200, 14);
+        m_timer.setInterval(30);
+        QObject::connect(&m_timer, &QTimer::timeout, this, [this]() {
+            const int maxPos = width() - kBoxWidth;
+            m_pos += m_dir * kStep;
+            if (m_pos >= maxPos) { m_pos = maxPos; m_dir = -1; }
+            else if (m_pos <= 0) { m_pos = 0; m_dir = 1; }
+            update();
+        });
+    }
+protected:
+    void showEvent(QShowEvent* e) override {
+        m_pos = 0; m_dir = 1;
+        m_timer.start();
+        QWidget::showEvent(e);
+    }
+    void hideEvent(QHideEvent* e) override {
+        m_timer.stop();
+        QWidget::hideEvent(e);
+    }
+    void paintEvent(QPaintEvent*) override {
+        QPainter p(this);
+        p.fillRect(rect(), QColor(240, 240, 240));
+        p.setPen(QColor(204, 204, 204));
+        p.drawRect(rect().adjusted(0, 0, -1, -1));
+        p.fillRect(QRect(m_pos, 1, kBoxWidth, height() - 2), QColor(52, 120, 255));
+    }
+private:
+    static constexpr int kBoxWidth = 40;
+    static constexpr int kStep = 5;
+    QTimer m_timer;
+    int m_pos = 0;
+    int m_dir = 1;
+};
+
 constexpr int kMaxRecent = 10;
 QString recentKey(const QString& prefix, int i, bool left) {
     return QString("%1/%2/%3").arg(prefix).arg(i).arg(left ? "left" : "right");
@@ -278,9 +325,42 @@ void MainWindow::createStatusBar() {
     m_leftPathLabel = new QLabel(this);
     m_rightPathLabel = new QLabel(this);
     m_diffCountLabel = new QLabel(this);
+    // Parented to the status bar but kept out of its layout so it can float
+    // centered as an overlay. Position is set in resizeEvent / setBusy.
+    m_busyBar = new BusyIndicator(statusBar());
+    m_busyBar->hide();
     statusBar()->addWidget(m_leftPathLabel, 1);
     statusBar()->addWidget(m_rightPathLabel, 1);
     statusBar()->addPermanentWidget(m_diffCountLabel);
+}
+
+void MainWindow::resizeEvent(QResizeEvent* event) {
+    QMainWindow::resizeEvent(event);
+    if (m_busyBar && m_busyBar->parentWidget() == statusBar()) {
+        const int x = (statusBar()->width() - m_busyBar->width()) / 2;
+        const int y = (statusBar()->height() - m_busyBar->height()) / 2;
+        m_busyBar->move(x, y);
+    }
+}
+
+void MainWindow::setBusy(const QString& message) {
+    statusBar()->showMessage(message);
+    if (m_busyBar) {
+        // Recenter in case the status bar dimensions changed since last show.
+        const int x = (statusBar()->width() - m_busyBar->width()) / 2;
+        const int y = (statusBar()->height() - m_busyBar->height()) / 2;
+        m_busyBar->move(x, y);
+        m_busyBar->show();
+        m_busyBar->raise();
+    }
+    // Drain pending paint events so the user sees the message and spinner
+    // before any blocking work starts.
+    QApplication::processEvents();
+}
+
+void MainWindow::clearBusy() {
+    statusBar()->clearMessage();
+    if (m_busyBar) m_busyBar->hide();
 }
 
 void MainWindow::openPair() {
@@ -311,6 +391,71 @@ void MainWindow::openFolderPair() {
     const QString right = QFileDialog::getExistingDirectory(this, "Open Right Folder");
     if (right.isEmpty()) return;
     loadFolderPair(left, right);
+}
+
+QString MainWindow::extractIfArchive(const QString& path) {
+    static const QStringList tarExts = {
+        ".tar", ".tar.gz", ".tgz", ".tar.bz2", ".tbz2", ".tar.xz", ".txz",
+    };
+    const QString lower = path.toLower();
+    bool isTar = false;
+    for (const auto& ext : tarExts) {
+        if (lower.endsWith(ext)) { isTar = true; break; }
+    }
+    const bool isZip = lower.endsWith(".zip");
+    if (!isTar && !isZip) return path;
+
+    auto tmp = std::make_unique<QTemporaryDir>();
+    if (!tmp->isValid()) {
+        QMessageBox::warning(this, "twain",
+            QString("Failed to create temp directory for %1:\n%2")
+                .arg(path, tmp->errorString()));
+        return {};
+    }
+    const QString tmpPath = tmp->path();
+
+    QProcess proc;
+    QEventLoop loop;
+    QObject::connect(&proc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+                     &loop, &QEventLoop::quit);
+    if (isZip) {
+        proc.start("unzip", {"-q", "-d", tmpPath, path});
+    } else {
+        proc.start("tar", {"-xf", path, "-C", tmpPath});
+    }
+    // Local event loop keeps the GUI responsive (status-bar spinner animates,
+    // window repaints) while tar/unzip runs.
+    loop.exec();
+    const bool ok = proc.exitStatus() == QProcess::NormalExit && proc.exitCode() == 0;
+    if (!ok) {
+        const QString stderrText = QString::fromUtf8(proc.readAllStandardError()).trimmed();
+        QMessageBox::warning(this, "twain",
+            QString("Failed to extract %1:\n%2")
+                .arg(path, stderrText.isEmpty() ? "(no stderr)" : stderrText));
+        return {};
+    }
+
+    m_extractedArchives.push_back(std::move(tmp));
+    return tmpPath;
+}
+
+void MainWindow::loadFromCli(const QString& leftArg, const QString& rightArg) {
+    setBusy("Extracting…");
+    const QString left = extractIfArchive(leftArg);
+    const QString right = extractIfArchive(rightArg);
+    if (left.isEmpty() || right.isEmpty()) {
+        clearBusy();
+        return;
+    }
+    setBusy("Loading…");
+    const QFileInfo l(left);
+    const QFileInfo r(right);
+    if (l.isDir() && r.isDir()) {
+        loadFolderPair(left, right);
+    } else {
+        loadPair(left, right);
+    }
+    clearBusy();
 }
 
 void MainWindow::loadPair(const QString& leftPath, const QString& rightPath) {

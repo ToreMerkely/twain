@@ -3,6 +3,7 @@
 #include <QFileInfo>
 #include <QStringList>
 #include <QTextStream>
+#include <QTimer>
 
 #include "DebugLog.h"
 #include "MainWindow.h"
@@ -47,13 +48,12 @@ int main(int argc, char** argv) {
 
     const QStringList pos = parser.positionalArguments();
     if (pos.size() >= 2) {
-        const QFileInfo l(pos[0]);
-        const QFileInfo r(pos[1]);
-        if (l.isDir() && r.isDir()) {
-            window.loadFolderPair(pos[0], pos[1]);
-        } else {
-            window.loadPair(pos[0], pos[1]);
-        }
+        // Defer to the event loop so the window chrome paints first; the
+        // user sees the menu/toolbar/status-bar (with spinner) instead of a
+        // blank frame while archives extract.
+        QTimer::singleShot(0, &window, [&window, pos]() {
+            window.loadFromCli(pos[0], pos[1]);
+        });
     }
 
     return app.exec();
