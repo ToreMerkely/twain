@@ -40,6 +40,9 @@ public:
 protected:
     void closeEvent(QCloseEvent* event) override;
     void resizeEvent(QResizeEvent* event) override;
+    void showEvent(QShowEvent* event) override;
+    void paintEvent(QPaintEvent* event) override;
+    bool event(QEvent* event) override;
     bool eventFilter(QObject* obj, QEvent* event) override;
 
 private slots:

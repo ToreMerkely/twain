@@ -2,6 +2,7 @@
 #include <QCommandLineParser>
 #include <QFileInfo>
 #include <QIcon>
+#include <QPixmap>
 #include <QStringList>
 #include <QTextStream>
 #include <QTimer>
@@ -45,13 +46,30 @@ int main(int argc, char** argv) {
         return 0;
     }
 
+    TWAIN_LOG("startup: creating MainWindow");
     MainWindow window;
+    TWAIN_LOG("startup: MainWindow constructed");
+    // Preserve the position/size restored from settings before stashing the
+    // window off-screen for the initial paint pass.
+    const QPoint plannedPos = window.pos();
+    const QSize plannedSize = window.size();
+    TWAIN_LOG(QString("startup: planned pos=%1,%2 size=%3x%4")
+                  .arg(plannedPos.x()).arg(plannedPos.y())
+                  .arg(plannedSize.width()).arg(plannedSize.height()));
+    // Show off-screen first so the compositor's first composite of this
+    // window happens where nobody can see it. By the time we move it on
+    // screen, Qt has painted into the backing store at least once.
+    window.move(-30000, -30000);
     window.show();
-    // Drain initial layout/paint events so the window arrives on screen with
-    // its chrome already drawn. Without this, some X11 compositors map the
-    // window before Qt's first paint pass, briefly showing whatever was in
-    // the underlying buffer (often the previous app's content).
+    TWAIN_LOG("startup: show() returned, forcing render");
+    QPixmap forcePaint(window.size());
+    window.render(&forcePaint);
+    TWAIN_LOG("startup: render returned, draining events");
     QApplication::processEvents();
+    TWAIN_LOG("startup: processEvents drained, moving on-screen");
+    window.move(plannedPos);
+    window.resize(plannedSize);
+    TWAIN_LOG("startup: move complete");
 
     const QStringList pos = parser.positionalArguments();
     if (pos.size() >= 2) {

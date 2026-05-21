@@ -31,6 +31,7 @@
 #include <QTimer>
 #include <QToolBar>
 
+#include "DebugLog.h"
 #include "TreeCompareModel.h"
 
 namespace {
@@ -91,6 +92,11 @@ QString dirDisplayName(const QString& p) {
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     setWindowTitle("twain");
     resize(1400, 900);
+    // Auto-fill the window background with the palette colour so first-paint
+    // can never show through to whatever was in the underlying X buffer.
+    // (WA_OpaquePaintEvent together with this attribute confused Qt into
+    // suppressing paint events entirely on at least one compositor.)
+    setAutoFillBackground(true);
 
     createActions();
     createMenus();
@@ -101,6 +107,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     m_tabs->setTabsClosable(true);
     m_tabs->setMovable(true);
     m_tabs->setDocumentMode(true);
+    m_tabs->setAutoFillBackground(true);
     setCentralWidget(m_tabs);
 
     connect(m_tabs, &QTabWidget::currentChanged, this, &MainWindow::onTabChanged);
@@ -109,6 +116,27 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     readSettings();
     updateForCurrentTab();
     qApp->installEventFilter(this);
+}
+
+void MainWindow::showEvent(QShowEvent* event) {
+    static bool firstShow = true;
+    if (firstShow) { TWAIN_LOG("MainWindow::showEvent first"); firstShow = false; }
+    QMainWindow::showEvent(event);
+}
+
+void MainWindow::paintEvent(QPaintEvent* event) {
+    static bool firstPaint = true;
+    if (firstPaint) { TWAIN_LOG("MainWindow::paintEvent first"); firstPaint = false; }
+    QMainWindow::paintEvent(event);
+}
+
+bool MainWindow::event(QEvent* event) {
+    static bool firstExpose = true;
+    if (firstExpose && event->type() == QEvent::Expose) {
+        TWAIN_LOG("MainWindow::event Expose first (window mapped)");
+        firstExpose = false;
+    }
+    return QMainWindow::event(event);
 }
 
 bool MainWindow::eventFilter(QObject* obj, QEvent* event) {
