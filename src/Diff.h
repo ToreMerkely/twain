@@ -45,7 +45,10 @@ struct AlignmentPair {
 
 // Order-preserving best alignment of two short line lists. Pairs with
 // similarity below a threshold are dropped so unrelated lines stay
-// unpaired.
+// unpaired. For blocks larger than kMaxAlignCells (n*m), falls back to a
+// coarse positional 1-to-1 pairing — the result is no longer a semantic
+// alignment, so callers should also skip per-pair work like lineDiff().
+constexpr long long kMaxAlignCells = 1'000'000;
 QVector<AlignmentPair> alignBlock(const QStringList& left, const QStringList& right);
 
 }  // namespace Diff

@@ -45,7 +45,7 @@ void buildSingleSidedTree(Entry& entry, const QString& path, bool leftSide,
 void fillSingleSidedDir(Entry& entry, const QString& path, bool leftSide,
                         QSet<QString>& visited) {
     QDir dir(path);
-    const QFileInfoList list = dir.entryInfoList(QDir::AllEntries | QDir::NoDotAndDotDot);
+    const QFileInfoList list = dir.entryInfoList(QDir::AllEntries | QDir::Hidden | QDir::NoDotAndDotDot);
     for (const QFileInfo& info : list) {
         Entry child;
         child.name = info.fileName();
@@ -83,8 +83,8 @@ void compareDirContents(Entry& entry, const QString& leftPath, const QString& ri
                         QSet<QString>& visitedLeft, QSet<QString>& visitedRight) {
     QDir lDir(leftPath);
     QDir rDir(rightPath);
-    const QFileInfoList lList = lDir.entryInfoList(QDir::AllEntries | QDir::NoDotAndDotDot);
-    const QFileInfoList rList = rDir.entryInfoList(QDir::AllEntries | QDir::NoDotAndDotDot);
+    const QFileInfoList lList = lDir.entryInfoList(QDir::AllEntries | QDir::Hidden | QDir::NoDotAndDotDot);
+    const QFileInfoList rList = rDir.entryInfoList(QDir::AllEntries | QDir::Hidden | QDir::NoDotAndDotDot);
 
     QMap<QString, QFileInfo> lByName, rByName;
     for (const auto& fi : lList) lByName.insert(fi.fileName(), fi);

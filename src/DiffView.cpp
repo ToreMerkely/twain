@@ -112,6 +112,10 @@ DiffView::DiffView(QWidget* parent) : QWidget(parent) {
         label->setTextInteractionFlags(Qt::TextSelectableByMouse);
         label->setContentsMargins(4, 2, 4, 2);
         label->setTextFormat(Qt::PlainText);
+        // Don't let a long path (or the TRUNCATED prefix) push the splitter
+        // — the label is clipped to its container's width; the full text is
+        // available via tooltip.
+        label->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
         QFont labelFont = label->font();
         labelFont.setPointSizeF(labelFont.pointSizeF() * 1.3);
         label->setFont(labelFont);
@@ -440,13 +444,10 @@ static QStringList readFileLines(const QString& path, FileLoadInfo* info,
         lines.removeLast();
     }
     if (info) info->totalLines = lines.size();
-    if (lines.size() > kLazyLoadMaxLines) {
-        if (info) {
-            info->pendingLines = lines.mid(kLazyLoadMaxLines);
-            info->truncated = true;
-        }
-        lines.resize(kLazyLoadMaxLines);
-    }
+    // No line cap on the in-memory path — the file is already loaded, and
+    // the diff layer enforces its own bounds (Myers' kMaxD, alignBlock's
+    // kMaxAlignCells). The kLazyLoadMaxLines cap only applies to the
+    // streaming path above the kLazyLoadThresholdBytes (10 MB) boundary.
     TWAIN_SCOPED_NOTE(_t, QString("path=%1 bytes=%2 lines=%3 truncated=%4")
                              .arg(path).arg(bytes.size()).arg(lines.size())
                              .arg(info && info->truncated ? "yes" : "no"));
@@ -587,6 +588,14 @@ static AlignedBuildResult buildAlignedRows(
         }
 
         QVector<Diff::AlignmentPair> pairs;
+        // When alignBlock falls back to its coarse positional pairing, the
+        // k<->k pairs are not semantically related — char-level lineDiff on
+        // them produces misleading highlights and (at scale) dominates
+        // setFiles time. Skip per-pair lineDiff in that regime.
+        const bool blockTooLarge =
+            static_cast<long long>(leftBlock.size()) *
+                static_cast<long long>(rightBlock.size()) >
+            Diff::kMaxAlignCells;
         if (hasDel && hasIns) {
 #ifdef TWAIN_DEBUG
             const auto _abStart = std::chrono::steady_clock::now();
@@ -623,7 +632,7 @@ static AlignedBuildResult buildAlignedRows(
             if (p.rightIdx >= 0) {
                 rr.recentlyCopied = inRange(rr.sourceLine, highlight.rightStart, highlight.rightCount);
             }
-            if (p.leftIdx >= 0 && p.rightIdx >= 0) {
+            if (p.leftIdx >= 0 && p.rightIdx >= 0 && !blockTooLarge) {
 #ifdef TWAIN_DEBUG
                 const auto _ldStart = std::chrono::steady_clock::now();
 #endif
