@@ -13,7 +13,7 @@
 int main(int argc, char** argv) {
     QApplication app(argc, argv);
     app.setApplicationName("twain");
-    app.setApplicationVersion("0.4.0");
+    app.setApplicationVersion("1.0.0");
     app.setOrganizationName("twain");
     app.setWindowIcon(QIcon(":/icons/twain.svg"));
     DebugLog::init();
