@@ -942,6 +942,29 @@ void DiffView::nextDifference() {
     // (rather than m_currentDiff) keeps navigation in sync after manual
     // scrolling, clicking, or a loadMore that moved the cursor.
     const int cursorRow = m_left->textCursor().blockNumber();
+
+    // If the cursor sits inside a diff block whose last row is still below
+    // the visible viewport, jump to that last row first — otherwise tall
+    // diffs would be skipped over after only their top was seen.
+    const int curIdx = blockIndexAtRow(cursorRow);
+    if (curIdx >= 0) {
+        const int lineH = m_left->fontMetrics().lineSpacing();
+        const int visibleLines = lineH > 0 ? m_left->viewport()->height() / lineH : 0;
+        const int bottomLine = m_left->verticalScrollBar()->value() + visibleLines - 1;
+        const int blockLastRow = m_diffBlocks[curIdx].rowEnd - 1;
+        if (blockLastRow > bottomLine) {
+            QTextCursor cursor(m_left->document()->findBlockByNumber(blockLastRow));
+            m_left->setTextCursor(cursor);
+            const int newTop = std::max(0, blockLastRow - 3 * visibleLines / 4);
+            m_left->verticalScrollBar()->setValue(newTop);
+            m_left->setFocus();
+            m_syncing = true;
+            m_right->verticalScrollBar()->setValue(m_left->verticalScrollBar()->value());
+            m_syncing = false;
+            return;
+        }
+    }
+
     for (int i = 0; i < m_diffBlocks.size(); ++i) {
         if (m_diffBlocks[i].rowStart > cursorRow) {
             goToDiff(i);
