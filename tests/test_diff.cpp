@@ -26,6 +26,49 @@ QString shape(const QVector<Diff::Hunk>& hunks) {
     return out;
 }
 
+// Invariants every well-formed compute() result should satisfy:
+//   1. sum of left-side counts (Equal+Delete) equals left.size()
+//   2. sum of right-side counts (Equal+Insert) equals right.size()
+//   3. consecutive hunks are non-decreasing in leftStart and rightStart,
+//      and exactly contiguous on the side(s) they cover.
+// Returns a non-empty failure description if any invariant is violated.
+QString invariantViolation(const QStringList& left, const QStringList& right,
+                           const QVector<Diff::Hunk>& hunks) {
+    int leftSum = 0, rightSum = 0;
+    int expectedLeft = 0, expectedRight = 0;
+    for (int i = 0; i < hunks.size(); ++i) {
+        const auto& h = hunks[i];
+        // On the side(s) the hunk covers, its start must equal the running
+        // expected index, and its count advances that index.
+        const bool touchesLeft  = (h.op != Diff::Op::Insert);
+        const bool touchesRight = (h.op != Diff::Op::Delete);
+        if (touchesLeft && h.leftStart != expectedLeft) {
+            return QString("hunk %1 leftStart=%2 expected %3")
+                .arg(i).arg(h.leftStart).arg(expectedLeft);
+        }
+        if (touchesRight && h.rightStart != expectedRight) {
+            return QString("hunk %1 rightStart=%2 expected %3")
+                .arg(i).arg(h.rightStart).arg(expectedRight);
+        }
+        if (touchesLeft) expectedLeft += h.leftCount;
+        if (touchesRight) expectedRight += h.rightCount;
+        if (h.op == Diff::Op::Equal || h.op == Diff::Op::Delete) leftSum += h.leftCount;
+        if (h.op == Diff::Op::Equal || h.op == Diff::Op::Insert) rightSum += h.rightCount;
+    }
+    if (leftSum != left.size()) {
+        return QString("left coverage %1 != %2").arg(leftSum).arg(left.size());
+    }
+    if (rightSum != right.size()) {
+        return QString("right coverage %1 != %2").arg(rightSum).arg(right.size());
+    }
+    return {};
+}
+
+#define VERIFY_INVARIANTS(L, R, H) do { \
+    const QString _v = invariantViolation((L), (R), (H)); \
+    QVERIFY2(_v.isEmpty(), qPrintable(_v)); \
+} while (0)
+
 }  // namespace
 
 class TestDiff : public QObject {
@@ -62,6 +105,18 @@ private slots:
     void similarity_identical_is_one();
     void similarity_disjoint_is_zero();
     void similarity_partial_overlap();
+
+    void invariants_hold_across_representative_inputs();
+    void compute_self_compare_is_all_equal();
+    void alignBlock_pair_just_above_threshold_pairs();
+    void alignBlock_pair_just_below_threshold_unpaired();
+    void alignBlock_preserves_order_of_three_pairs();
+    void lineDiff_ignoreCase_drops_case_only_diff();
+    void lineDiff_ignoreWhitespace_drops_spacing_only_diff();
+    void single_line_identical_inputs();
+    void single_line_different_inputs();
+    void trailing_empty_line_aligns_when_present_on_both_sides();
+    void trailing_empty_line_missing_on_one_side_is_a_difference();
 };
 
 void TestDiff::identical_files_produce_one_equal_hunk() {
@@ -405,6 +460,163 @@ void TestDiff::similarity_partial_overlap() {
     // Jaccard("foo bar" {foo,bar}, "foo qux" {foo,qux}) = 1 / 3.
     const double s = Diff::similarity("foo bar", "foo qux");
     QVERIFY(s > 0.30 && s < 0.34);
+}
+
+void TestDiff::invariants_hold_across_representative_inputs() {
+    struct Case { QStringList left, right; };
+    const QVector<Case> cases = {
+        // identical
+        { L({"a", "b", "c"}),                L({"a", "b", "c"}) },
+        // disjoint
+        { L({"a", "b", "c"}),                L({"x", "y", "z"}) },
+        // prefix + change + suffix
+        { L({"h", "X", "t"}),                L({"h", "Y", "t"}) },
+        // empties
+        { {},                                L({"a", "b"}) },
+        { L({"a", "b"}),                     {} },
+        { {},                                {} },
+        // mid-file insert/delete
+        { L({"a", "b", "c"}),                L({"a", "X", "Y", "b", "c"}) },
+        { L({"a", "X", "Y", "b", "c"}),      L({"a", "b", "c"}) },
+        // multiple change blocks
+        { L({"a", "X1", "b", "c", "Y1", "d"}),
+          L({"a", "X2", "b", "c", "Y2", "d"}) },
+        // anchor-driven shape
+        { L({"removed1", "removed2", "keep1", "keep2"}),
+          L({"keep1", "keep2"}) },
+        // swap (patience LIS conflict)
+        { L({"A", "B"}),                     L({"B", "A"}) },
+    };
+    for (const auto& c : cases) {
+        const auto hunks = Diff::compute(c.left, c.right);
+        VERIFY_INVARIANTS(c.left, c.right, hunks);
+    }
+}
+
+void TestDiff::compute_self_compare_is_all_equal() {
+    const QVector<QStringList> inputs = {
+        L({"a"}),
+        L({"a", "b", "c"}),
+        L({"line one", "", "line three"}),  // includes a blank line
+        L({"x", "x", "x", "x"}),            // repeated lines
+    };
+    for (const auto& in : inputs) {
+        const auto hunks = Diff::compute(in, in);
+        if (in.isEmpty()) {
+            QCOMPARE(hunks.size(), 0);
+        } else {
+            QCOMPARE(hunks.size(), 1);
+            QCOMPARE(hunks[0].op, Diff::Op::Equal);
+            QCOMPARE(hunks[0].leftCount, in.size());
+            QCOMPARE(hunks[0].rightCount, in.size());
+        }
+        VERIFY_INVARIANTS(in, in, hunks);
+    }
+}
+
+void TestDiff::alignBlock_pair_just_above_threshold_pairs() {
+    // Jaccard threshold in alignBlock is 0.1. Three shared words out of
+    // {a,b,c} ∪ {a,d,e,f} = 6 distinct → 1/6 ≈ 0.167 > 0.1.
+    const auto left  = L({"a b c"});
+    const auto right = L({"a d e f"});
+    QVERIFY(Diff::similarity(left[0], right[0]) > 0.1);
+    const auto pairs = Diff::alignBlock(left, right);
+    bool paired = false;
+    for (const auto& p : pairs) {
+        if (p.leftIdx == 0 && p.rightIdx == 0) { paired = true; break; }
+    }
+    QVERIFY(paired);
+}
+
+void TestDiff::alignBlock_pair_just_below_threshold_unpaired() {
+    // 1 shared word out of {a,b,c,d,e,f,g,h,i,j,k} = 11 distinct → ~0.09 < 0.1.
+    const auto left  = L({"a b c d e"});
+    const auto right = L({"a f g h i j k"});
+    QVERIFY(Diff::similarity(left[0], right[0]) < 0.1);
+    const auto pairs = Diff::alignBlock(left, right);
+    for (const auto& p : pairs) {
+        QVERIFY(p.leftIdx == -1 || p.rightIdx == -1);
+    }
+}
+
+void TestDiff::alignBlock_preserves_order_of_three_pairs() {
+    const auto left  = L({"alpha foo", "beta foo",  "gamma foo"});
+    const auto right = L({"alpha bar", "beta bar",  "gamma bar"});
+    const auto pairs = Diff::alignBlock(left, right);
+    int lastL = -1, lastR = -1, pairedCount = 0;
+    for (const auto& p : pairs) {
+        if (p.leftIdx >= 0 && p.rightIdx >= 0) {
+            QVERIFY(p.leftIdx > lastL);
+            QVERIFY(p.rightIdx > lastR);
+            lastL = p.leftIdx;
+            lastR = p.rightIdx;
+            ++pairedCount;
+        }
+    }
+    QCOMPARE(pairedCount, 3);
+}
+
+void TestDiff::lineDiff_ignoreCase_drops_case_only_diff() {
+    Diff::Options opts;
+    opts.ignoreCase = true;
+    const auto ld = Diff::lineDiff("Hello World", "hello world", opts);
+    for (const auto& s : ld.left)  QVERIFY(!s.differ);
+    for (const auto& s : ld.right) QVERIFY(!s.differ);
+}
+
+void TestDiff::lineDiff_ignoreWhitespace_drops_spacing_only_diff() {
+    // ignoreWhitespace lets compute() see the two whitespace runs as equal,
+    // so every token on the shorter side ("hello world") matches something
+    // on the longer side — no differing segments on the right. The extra
+    // spaces on the left remain marked as differing, which is what we want
+    // visually (the user can still see what's extra).
+    Diff::Options opts;
+    opts.ignoreWhitespace = true;
+    const auto ld = Diff::lineDiff("hello   world", "hello world", opts);
+    for (const auto& s : ld.right) QVERIFY(!s.differ);
+}
+
+void TestDiff::single_line_identical_inputs() {
+    const auto hunks = Diff::compute(L({"only line"}), L({"only line"}));
+    QCOMPARE(shape(hunks), QString("=1"));
+}
+
+void TestDiff::single_line_different_inputs() {
+    const auto left = L({"left only"});
+    const auto right = L({"right only"});
+    const auto hunks = Diff::compute(left, right);
+    int del = 0, ins = 0, eq = 0;
+    for (const auto& h : hunks) {
+        if (h.op == Diff::Op::Delete) del += h.leftCount;
+        if (h.op == Diff::Op::Insert) ins += h.rightCount;
+        if (h.op == Diff::Op::Equal)  eq += h.leftCount;
+    }
+    QCOMPARE(eq, 0);
+    QCOMPARE(del, 1);
+    QCOMPARE(ins, 1);
+    VERIFY_INVARIANTS(left, right, hunks);
+}
+
+void TestDiff::trailing_empty_line_aligns_when_present_on_both_sides() {
+    // readFileLines leaves a trailing "" element when both files end with
+    // a newline. compute() should pair those empty lines.
+    const auto left  = L({"a", "b", ""});
+    const auto right = L({"a", "b", ""});
+    QCOMPARE(shape(Diff::compute(left, right)), QString("=3"));
+}
+
+void TestDiff::trailing_empty_line_missing_on_one_side_is_a_difference() {
+    const auto left  = L({"a", "b", ""});
+    const auto right = L({"a", "b"});
+    const auto hunks = Diff::compute(left, right);
+    int eq = 0, del = 0;
+    for (const auto& h : hunks) {
+        if (h.op == Diff::Op::Equal)  eq  += h.leftCount;
+        if (h.op == Diff::Op::Delete) del += h.leftCount;
+    }
+    QCOMPARE(eq, 2);
+    QCOMPARE(del, 1);
+    VERIFY_INVARIANTS(left, right, hunks);
 }
 
 QTEST_GUILESS_MAIN(TestDiff)
