@@ -1,19 +1,30 @@
 #include "TreeCompare.h"
 
+#include <QCoreApplication>
 #include <QCryptographicHash>
 #include <QDir>
+#include <QEventLoop>
 #include <QFile>
 #include <QFileInfo>
 #include <QSet>
+
+#include "DebugLog.h"
 
 namespace TreeCompare {
 
 namespace {
 
+// Drain pending paint/timer events so the status-bar busy indicator keeps
+// animating during a long tree walk (the SHA-1 in filesAreSame() can take
+// many seconds in aggregate). Excludes user input to avoid re-entry.
+inline void pumpUi() {
+    QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
+}
+
 QByteArray hashFile(const QString& path) {
     QFile f(path);
     if (!f.open(QIODevice::ReadOnly)) return {};
-    QCryptographicHash h(QCryptographicHash::Sha1);
+    QCryptographicHash h(QCryptographicHash::Md5);
     if (!h.addData(&f)) return {};
     return h.result();
 }
@@ -64,6 +75,7 @@ void fillSingleSidedDir(Entry& entry, const QString& path, bool leftSide,
             buildSingleSidedTree(child, info.absoluteFilePath(), leftSide, visited);
         }
         entry.children.append(child);
+        pumpUi();
     }
     sortChildren(entry.children);
 }
@@ -147,6 +159,7 @@ void compareDirContents(Entry& entry, const QString& leftPath, const QString& ri
             }
         }
         entry.children.append(child);
+        pumpUi();
     }
     sortChildren(entry.children);
 }
@@ -170,6 +183,7 @@ void compareDir(Entry& entry, const QString& leftPath, const QString& rightPath,
 }  // namespace
 
 Entry compare(const QString& leftRoot, const QString& rightRoot) {
+    TWAIN_SCOPED("TreeCompare::compare");
     Entry root;
     root.name = QString();
     root.isDir = true;

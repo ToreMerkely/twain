@@ -1,6 +1,10 @@
 #include "TreeCompareView.h"
 
+#include <QCoreApplication>
+#include <QEventLoop>
 #include <QHBoxLayout>
+
+#include <functional>
 #include <QHeaderView>
 #include <QPainter>
 #include <QScrollBar>
@@ -9,8 +13,44 @@
 #include <QTreeView>
 #include <QWheelEvent>
 
+#include "DebugLog.h"
 #include "DiffView.h"
 #include "TreeCompareModel.h"
+
+namespace {
+
+// Expand every collapsible item in `view`, pumping the Qt event loop
+// periodically so the status-bar busy indicator keeps animating. Updates
+// are suppressed for the duration to keep QTreeView from repainting after
+// every individual expand, which is what makes the plain expandAll() slow.
+void expandAllWithPump(QTreeView* view) {
+    QAbstractItemModel* model = view->model();
+    if (!model) return;
+    view->setUpdatesEnabled(false);
+    int sinceYield = 0;
+    auto pump = [&]() {
+        if (++sinceYield >= 32) {
+            QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
+            sinceYield = 0;
+        }
+    };
+    std::function<void(const QModelIndex&)> recur = [&](const QModelIndex& parent) {
+        const int rc = model->rowCount(parent);
+        for (int r = 0; r < rc; ++r) {
+            const QModelIndex idx = model->index(r, 0, parent);
+            if (model->rowCount(idx) > 0) {
+                view->expand(idx);
+                pump();
+                recur(idx);
+            }
+        }
+    };
+    recur(QModelIndex());
+    view->setUpdatesEnabled(true);
+    view->viewport()->update();
+}
+
+}  // namespace
 
 namespace {
 
@@ -215,12 +255,29 @@ void TreeCompareView::onDoubleClicked(const QModelIndex& index) {
 
 bool TreeCompareView::setFolders(const QString& leftPath, const QString& rightPath, QString* error) {
     Q_UNUSED(error);
-    auto root = TreeCompare::compare(leftPath, rightPath);
-    m_model->setRoot(std::move(root));
-    recountLeaves();
-    for (int i = 0; i < TreeCompareModel::kColCount; ++i) m_left->resizeColumnToContents(i);
-    for (int i = 0; i < TreeCompareModel::kColCount; ++i) m_right->resizeColumnToContents(i);
-    m_left->expandAll();
+    TWAIN_SCOPED("TreeCompareView::setFolders");
+    TreeCompare::Entry root;
+    {
+        TWAIN_SCOPED("  compare");
+        root = TreeCompare::compare(leftPath, rightPath);
+    }
+    {
+        TWAIN_SCOPED("  setRoot");
+        m_model->setRoot(std::move(root));
+    }
+    {
+        TWAIN_SCOPED("  recountLeaves");
+        recountLeaves();
+    }
+    {
+        TWAIN_SCOPED("  resizeColumnToContents");
+        for (int i = 0; i < TreeCompareModel::kColCount; ++i) m_left->resizeColumnToContents(i);
+        for (int i = 0; i < TreeCompareModel::kColCount; ++i) m_right->resizeColumnToContents(i);
+    }
+    {
+        TWAIN_SCOPED("  expandAll");
+        expandAllWithPump(m_left);
+    }
     if (m_model->rowCount() > 0) {
         const QModelIndex first = m_model->index(0, 0);
         m_left->setCurrentIndex(first);
@@ -233,7 +290,7 @@ bool TreeCompareView::setFolders(const QString& leftPath, const QString& rightPa
 
 void TreeCompareView::setFilter(TreeCompareModel::FilterMode mode) {
     m_model->setFilter(mode);
-    m_left->expandAll();
+    expandAllWithPump(m_left);
 }
 
 static QModelIndex nextDocOrderIndex(const QAbstractItemModel* model, const QModelIndex& curr) {
