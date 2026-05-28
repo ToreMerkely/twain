@@ -32,3 +32,16 @@ if(TWAIN_DEBUG)
     target_compile_definitions(twain PRIVATE TWAIN_DEBUG=1)
     set_target_properties(twain PROPERTIES OUTPUT_NAME twain-debug)
 endif()
+
+option(TWAIN_TESTS "Build twain unit tests" OFF)
+if(TWAIN_TESTS)
+    find_package(Qt6 REQUIRED COMPONENTS Test)
+    enable_testing()
+    add_executable(twain_tests
+        tests/test_diff.cpp
+        src/Diff.cpp
+    )
+    target_include_directories(twain_tests PRIVATE src)
+    target_link_libraries(twain_tests PRIVATE Qt6::Core Qt6::Test)
+    add_test(NAME twain_tests COMMAND twain_tests)
+endif()

@@ -1,5 +1,6 @@
 build/
 build-debug/
+build-test/
 cmake-build-debug/
 compile_commands.json
 .cache/
