@@ -26,6 +26,7 @@
 #include <QShortcut>
 #include <QStatusBar>
 #include <QStyle>
+#include <QTabBar>
 #include <QTabWidget>
 #include <QTemporaryDir>
 #include <QTimer>
@@ -271,6 +272,23 @@ void MainWindow::createActions() {
         const int n = m_tabs->count();
         if (n <= 0) return;
         m_tabs->setCurrentIndex((m_tabs->currentIndex() - 1 + n) % n);
+    });
+
+    auto* moveTabRight = new QShortcut(
+        QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_PageDown), this);
+    moveTabRight->setContext(Qt::ApplicationShortcut);
+    connect(moveTabRight, &QShortcut::activated, this, [this]() {
+        const int cur = m_tabs->currentIndex();
+        if (cur < 0 || cur + 1 >= m_tabs->count()) return;
+        m_tabs->tabBar()->moveTab(cur, cur + 1);
+    });
+    auto* moveTabLeft = new QShortcut(
+        QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_PageUp), this);
+    moveTabLeft->setContext(Qt::ApplicationShortcut);
+    connect(moveTabLeft, &QShortcut::activated, this, [this]() {
+        const int cur = m_tabs->currentIndex();
+        if (cur <= 0) return;
+        m_tabs->tabBar()->moveTab(cur, cur - 1);
     });
 
     auto makeToggle = [this](const QString& label) {
