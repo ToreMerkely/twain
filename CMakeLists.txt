@@ -9,6 +9,8 @@ set(CMAKE_AUTORCC ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 option(TWAIN_DEBUG "Enable twain debug instrumentation (logs to /tmp/twain-PID.log)" OFF)
+option(TWAIN_TESTS "Build twain unit tests" OFF)
+option(TWAIN_COVERAGE "Instrument the build with gcov coverage flags" OFF)
 
 find_package(Qt6 REQUIRED COMPONENTS Widgets)
 
@@ -33,8 +35,14 @@ if(TWAIN_DEBUG)
     set_target_properties(twain PROPERTIES OUTPUT_NAME twain-debug)
 endif()
 
-option(TWAIN_TESTS "Build twain unit tests" OFF)
-option(TWAIN_COVERAGE "Instrument the test build with gcov coverage flags" OFF)
+# When coverage is on, instrument the main twain target too so every
+# src/*.cpp produces a .gcno file. Files that no test actually exercises
+# then show up at 0% rather than disappearing from the report.
+if(TWAIN_COVERAGE)
+    target_compile_options(twain PRIVATE --coverage -O0 -g)
+    target_link_options(twain PRIVATE --coverage)
+endif()
+
 if(TWAIN_TESTS)
     find_package(Qt6 REQUIRED COMPONENTS Test)
     enable_testing()
