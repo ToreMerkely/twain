@@ -1,6 +1,7 @@
 #include "MainWindow.h"
 
 #include "DiffView.h"
+#include "ImageDiffView.h"
 #include "TreeCompareView.h"
 
 #include <QAction>
@@ -530,6 +531,38 @@ void MainWindow::loadFromCli(const QString& leftArg, const QString& rightArg) {
 void MainWindow::loadPair(const QString& leftPath, const QString& rightPath) {
     m_leftPath = leftPath;
     m_rightPath = rightPath;
+
+    // Route image pairs to the image viewer; everything else goes through
+    // the text-diff path. Same-extension check on both sides keeps us out
+    // of trouble when one side is an image and the other is text.
+    if (ImageDiffView::looksLikeImage(leftPath) &&
+        ImageDiffView::looksLikeImage(rightPath)) {
+        // Reuse an existing image tab for this pair if one is open.
+        for (int i = 0; i < m_tabs->count(); ++i) {
+            if (auto* iv = qobject_cast<ImageDiffView*>(m_tabs->widget(i))) {
+                if (iv->leftPath() == leftPath && iv->rightPath() == rightPath) {
+                    m_tabs->setCurrentWidget(iv);
+                    return;
+                }
+            }
+        }
+        auto* view = new ImageDiffView(this);
+        QString error;
+        if (!view->setFiles(leftPath, rightPath, &error)) {
+            QMessageBox::warning(this, "twain", error);
+            view->deleteLater();
+            return;
+        }
+        const QString l = QFileInfo(leftPath).fileName();
+        const QString r = QFileInfo(rightPath).fileName();
+        const QString title = (l == r && !l.isEmpty()) ? l : QString("%1 ⟷ %2").arg(l, r);
+        const int idx = m_tabs->addTab(view, title);
+        m_tabs->setTabToolTip(idx, leftPath + "\n" + rightPath);
+        m_tabs->setCurrentWidget(view);
+        rememberRecentPair("recent", leftPath, rightPath);
+        updateForCurrentTab();
+        return;
+    }
 
     if (DiffView* existing = findDiffTabForPair(leftPath, rightPath)) {
         m_tabs->setCurrentWidget(existing);

@@ -22,6 +22,7 @@ add_executable(twain
     src/DiffPane.cpp
     src/Diff.cpp
     src/DebugLog.cpp
+    src/ImageDiffView.cpp
     src/TreeCompareView.cpp
     src/TreeCompare.cpp
     src/TreeCompareModel.cpp
