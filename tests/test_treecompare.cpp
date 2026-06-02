@@ -53,6 +53,8 @@ private slots:
     void empty_folders_compare_as_same();
     void symlink_cycle_does_not_hang();
     void children_are_sorted_dirs_first_then_name();
+    void left_only_directory_recurses_into_children();
+    void right_only_directory_recurses_into_children();
 };
 
 void TestTreeCompare::identical_folders_compare_as_same() {
@@ -192,6 +194,50 @@ void TestTreeCompare::children_are_sorted_dirs_first_then_name() {
     QVERIFY(!root.children[2].isDir);
     QCOMPARE(root.children[3].name, QString("zfile"));
     QVERIFY(!root.children[3].isDir);
+}
+
+void TestTreeCompare::left_only_directory_recurses_into_children() {
+    // A directory present only on the left, containing nested files, must be
+    // recursively expanded with every descendant marked LeftOnly. This drives
+    // buildSingleSidedTree()/fillSingleSidedDir() on the left side.
+    QTemporaryDir l, r;
+    QVERIFY(l.isValid() && r.isValid());
+    writeFile(l.path(), "newdir/a.txt", "L");
+    writeFile(l.path(), "newdir/sub/b.txt", "L");
+
+    const auto root = TreeCompare::compare(l.path(), r.path());
+    QCOMPARE(root.status, Status::Different);
+
+    const auto* dir = findEntry(root, "newdir");
+    QVERIFY(dir);
+    QVERIFY(dir->isDir);
+    // The whole subtree is left-only, including the nested directory and files.
+    assertAll(*dir, Status::LeftOnly);
+    QVERIFY(findEntry(*dir, "a.txt"));
+    const auto* sub = findEntry(*dir, "sub");
+    QVERIFY(sub);
+    QVERIFY(sub->isDir);
+    QVERIFY(findEntry(*sub, "b.txt"));
+}
+
+void TestTreeCompare::right_only_directory_recurses_into_children() {
+    // Mirror of the above on the right side, driving the right-side branch of
+    // fillSingleSidedDir().
+    QTemporaryDir l, r;
+    QVERIFY(l.isValid() && r.isValid());
+    writeFile(r.path(), "newdir/a.txt", "R");
+    writeFile(r.path(), "newdir/sub/b.txt", "R");
+
+    const auto root = TreeCompare::compare(l.path(), r.path());
+    QCOMPARE(root.status, Status::Different);
+
+    const auto* dir = findEntry(root, "newdir");
+    QVERIFY(dir);
+    QVERIFY(dir->isDir);
+    assertAll(*dir, Status::RightOnly);
+    const auto* sub = findEntry(*dir, "sub");
+    QVERIFY(sub);
+    QVERIFY(findEntry(*sub, "b.txt"));
 }
 
 QTEST_GUILESS_MAIN(TestTreeCompare)

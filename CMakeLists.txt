@@ -60,4 +60,20 @@ if(TWAIN_TESTS)
     endfunction()
     twain_add_test(test_diff         src/Diff.cpp)
     twain_add_test(test_treecompare  src/TreeCompare.cpp)
+
+    # TreeCompareModel pulls in QtWidgets (QFileIconProvider) and needs a
+    # QApplication, so it can't use the QtCore-only twain_add_test helper.
+    add_executable(test_treecomparemodel
+        tests/test_treecomparemodel.cpp
+        src/TreeCompareModel.cpp)
+    target_include_directories(test_treecomparemodel PRIVATE src)
+    target_link_libraries(test_treecomparemodel PRIVATE Qt6::Widgets Qt6::Test)
+    if(TWAIN_COVERAGE)
+        target_compile_options(test_treecomparemodel PRIVATE --coverage -O0 -g)
+        target_link_options(test_treecomparemodel PRIVATE --coverage)
+    endif()
+    add_test(NAME test_treecomparemodel COMMAND test_treecomparemodel)
+    # Run headless under the offscreen platform plugin.
+    set_tests_properties(test_treecomparemodel PROPERTIES
+        ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
 endif()
