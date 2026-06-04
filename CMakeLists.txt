@@ -108,8 +108,9 @@ if(TWAIN_TESTS)
     twain_add_widget_test(test_diffview ${TWAIN_VIEW_SOURCES})
     twain_add_widget_test(test_treecompareview ${TWAIN_VIEW_SOURCES})
 
-    # ImageDiffView has no twain-internal dependencies.
+    # ImageDiffView and DiffOverview have no twain-internal dependencies.
     twain_add_widget_test(test_imagediffview src/ImageDiffView.cpp)
+    twain_add_widget_test(test_diffoverview src/DiffOverview.cpp)
 
     # MainWindow ties the whole view layer together.
     twain_add_widget_test(test_mainwindow
