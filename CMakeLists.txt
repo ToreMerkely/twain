@@ -76,4 +76,34 @@ if(TWAIN_TESTS)
     # Run headless under the offscreen platform plugin.
     set_tests_properties(test_treecomparemodel PROPERTIES
         ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+    # Widget-level tests: full QtWidgets link, offscreen platform. The tests
+    # provide their own main() (QSettings is redirected before QApplication).
+    function(twain_add_widget_test NAME)
+        # ARGN: the src/ files the widget under test pulls in.
+        add_executable(${NAME} tests/${NAME}.cpp ${ARGN})
+        target_include_directories(${NAME} PRIVATE src)
+        target_link_libraries(${NAME} PRIVATE Qt6::Widgets Qt6::Test)
+        if(TWAIN_COVERAGE)
+            target_compile_options(${NAME} PRIVATE --coverage -O0 -g)
+            target_link_options(${NAME} PRIVATE --coverage)
+        endif()
+        add_test(NAME ${NAME} COMMAND ${NAME})
+        set_tests_properties(${NAME} PROPERTIES
+            ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+    endfunction()
+
+    # DiffView/DiffPane reach TreeCompareView through the app-wide font
+    # broadcast, so the whole view layer links together.
+    set(TWAIN_VIEW_SOURCES
+        src/DiffView.cpp
+        src/DiffPane.cpp
+        src/DiffOverview.cpp
+        src/Diff.cpp
+        src/DebugLog.cpp
+        src/TreeCompareView.cpp
+        src/TreeCompare.cpp
+        src/TreeCompareModel.cpp)
+    twain_add_widget_test(test_diffpane ${TWAIN_VIEW_SOURCES})
+    twain_add_widget_test(test_diffview ${TWAIN_VIEW_SOURCES})
 endif()
