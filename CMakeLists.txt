@@ -106,4 +106,8 @@ if(TWAIN_TESTS)
         src/TreeCompareModel.cpp)
     twain_add_widget_test(test_diffpane ${TWAIN_VIEW_SOURCES})
     twain_add_widget_test(test_diffview ${TWAIN_VIEW_SOURCES})
+    twain_add_widget_test(test_treecompareview ${TWAIN_VIEW_SOURCES})
+
+    # ImageDiffView has no twain-internal dependencies.
+    twain_add_widget_test(test_imagediffview src/ImageDiffView.cpp)
 endif()
