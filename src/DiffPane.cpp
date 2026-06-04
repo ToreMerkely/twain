@@ -138,6 +138,11 @@ void DiffPane::setRows(const QVector<DiffRow>& rows) {
     }
     c.endEditBlock();
 
+    // The block-format edit above is an undoable document command; drop it
+    // so the user's first Ctrl+Z doesn't "undo" the row backgrounds (and so
+    // MainWindow::undo() routes to the arrow-copy undo instead).
+    document()->clearUndoRedoStacks();
+
     applyRowBackgrounds();
     m_lineNumberArea->update();
     m_loading = false;
