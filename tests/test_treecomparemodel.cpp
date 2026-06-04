@@ -3,6 +3,7 @@
 #include <QBrush>
 #include <QColor>
 #include <QDateTime>
+#include <QIcon>
 
 #include "TreeCompare.h"
 #include "TreeCompareModel.h"
@@ -91,6 +92,11 @@ private slots:
     void filter_left_only_keeps_only_left_entries();
     void filter_right_only_keeps_only_right_entries();
     void empty_folder_is_hidden();
+    void decoration_role_shows_icons_only_on_present_name_columns();
+    void font_and_unknown_roles_are_unset();
+    void right_only_entry_colors_right_side_blue();
+    void notify_deep_compare_done_resets_when_root_populated();
+    void destruction_through_base_pointer();
 };
 
 void TestTreeCompareModel::column_count_is_fixed() {
@@ -299,6 +305,79 @@ void TestTreeCompareModel::empty_folder_is_hidden() {
     }));
     QCOMPARE(m.rowCount(QModelIndex()), 1);
     QCOMPARE(m.entryFor(m.index(0, 0, QModelIndex()))->name, QString("a.txt"));
+}
+
+void TestTreeCompareModel::decoration_role_shows_icons_only_on_present_name_columns() {
+    TreeCompareModel m;
+    m.setRoot(root({
+        dir("d", Status::Different, {bothSidesFile("inner.txt", Status::Same)}),
+        leftOnlyFile("only-left.txt"),
+    }));
+
+    // Folder icon on the directory's name column, file icon on the file's.
+    const QVariant dirIcon =
+        m.data(m.index(0, TreeCompareModel::kColLeftName, QModelIndex()), Qt::DecorationRole);
+    QVERIFY(dirIcon.canConvert<QIcon>());
+    const QModelIndex dIdx = m.index(0, 0, QModelIndex());
+    const QVariant fileIcon =
+        m.data(m.index(0, TreeCompareModel::kColRightName, dIdx), Qt::DecorationRole);
+    QVERIFY(fileIcon.canConvert<QIcon>());
+
+    // No icon on non-name columns...
+    QVERIFY(!m.data(m.index(0, TreeCompareModel::kColLeftSize, QModelIndex()),
+                    Qt::DecorationRole).isValid());
+    // ...and none on the side where the entry does not exist.
+    QVERIFY(!m.data(m.index(1, TreeCompareModel::kColRightName, QModelIndex()),
+                    Qt::DecorationRole).isValid());
+}
+
+void TestTreeCompareModel::font_and_unknown_roles_are_unset() {
+    TreeCompareModel m;
+    m.setRoot(root({bothSidesFile("a.txt", Status::Same)}));
+    const QModelIndex idx = m.index(0, TreeCompareModel::kColLeftName, QModelIndex());
+    QVERIFY(!m.data(idx, Qt::FontRole).isValid());
+    QVERIFY(!m.data(idx, Qt::ToolTipRole).isValid());
+    // A Same-status file gets no foreground color either.
+    QVERIFY(!m.data(idx, Qt::ForegroundRole).isValid());
+}
+
+void TestTreeCompareModel::right_only_entry_colors_right_side_blue() {
+    TreeCompareModel m;
+    m.setRoot(root({rightOnlyFile("only-right.txt")}));
+
+    const QVariant fgRight =
+        m.data(m.index(0, TreeCompareModel::kColRightName, QModelIndex()), Qt::ForegroundRole);
+    QVERIFY(fgRight.canConvert<QBrush>());
+    QCOMPARE(fgRight.value<QBrush>().color(), QColor(0, 80, 200));
+    // The left side has no entry, so no brush there.
+    QVERIFY(!m.data(m.index(0, TreeCompareModel::kColLeftName, QModelIndex()),
+                    Qt::ForegroundRole).isValid());
+    // The right-side mtime column renders for a right-only entry.
+    QCOMPARE(m.data(m.index(0, TreeCompareModel::kColRightMTime, QModelIndex()),
+                    Qt::DisplayRole).toString(), QString("2026-01-02 03:04:05"));
+}
+
+void TestTreeCompareModel::notify_deep_compare_done_resets_when_root_populated() {
+    TreeCompareModel m;
+    QSignalSpy spy(&m, &QAbstractItemModel::modelReset);
+
+    // Empty root: early return, no reset.
+    m.notifyDeepCompareDone();
+    QCOMPARE(spy.count(), 0);
+
+    m.setRoot(root({bothSidesFile("a.txt", Status::Same)}));
+    spy.clear();
+    m.notifyDeepCompareDone();
+    QCOMPARE(spy.count(), 1);
+    QCOMPARE(m.rowCount(QModelIndex()), 1);
+}
+
+void TestTreeCompareModel::destruction_through_base_pointer() {
+    // Views own models polymorphically; deleting through the base class must
+    // run TreeCompareModel's destructor (which frees the icon provider).
+    QAbstractItemModel* m = new TreeCompareModel();
+    QCOMPARE(m->columnCount(QModelIndex()), TreeCompareModel::kColCount);
+    delete m;
 }
 
 QTEST_MAIN(TestTreeCompareModel)

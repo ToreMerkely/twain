@@ -117,6 +117,8 @@ private slots:
     void single_line_different_inputs();
     void trailing_empty_line_aligns_when_present_on_both_sides();
     void trailing_empty_line_missing_on_one_side_is_a_difference();
+    void myers_runs_when_common_lines_are_not_unique();
+    void alignBlock_identical_line_scores_as_full_match();
 };
 
 void TestDiff::identical_files_produce_one_equal_hunk() {
@@ -617,6 +619,41 @@ void TestDiff::trailing_empty_line_missing_on_one_side_is_a_difference() {
     QCOMPARE(eq, 2);
     QCOMPARE(del, 1);
     VERIFY_INVARIANTS(left, right, hunks);
+}
+
+void TestDiff::myers_runs_when_common_lines_are_not_unique() {
+    // The shared "a" lines appear twice on each side, so patience anchoring
+    // finds no unique anchors and the full Myers search has to discover the
+    // common middle itself (exercising its forward snake extension and the
+    // equal-run emission during backtracking).
+    const auto left  = L({"X", "a", "a", "Y"});
+    const auto right = L({"P", "a", "a", "Q"});
+    const auto hunks = Diff::compute(left, right);
+    VERIFY_INVARIANTS(left, right, hunks);
+    // The two "a" lines must come out as a single Equal hunk aligned 1<->1.
+    int equalHunks = 0;
+    for (const auto& h : hunks) {
+        if (h.op != Diff::Op::Equal) continue;
+        ++equalHunks;
+        QCOMPARE(h.leftStart, 1);
+        QCOMPARE(h.rightStart, 1);
+        QCOMPARE(h.leftCount, 2);
+    }
+    QCOMPARE(equalHunks, 1);
+}
+
+void TestDiff::alignBlock_identical_line_scores_as_full_match() {
+    // One line in the block is byte-identical across sides; the DP scores it
+    // as a perfect match (without tokenizing) and pairs it, alongside the
+    // merely-similar first pair.
+    const auto left  = L({"int value = compute(x);", "// unchanged comment"});
+    const auto right = L({"int value = compute(y);", "// unchanged comment"});
+    const auto pairs = Diff::alignBlock(left, right);
+    QCOMPARE(pairs.size(), 2);
+    QCOMPARE(pairs[0].leftIdx, 0);
+    QCOMPARE(pairs[0].rightIdx, 0);
+    QCOMPARE(pairs[1].leftIdx, 1);
+    QCOMPARE(pairs[1].rightIdx, 1);
 }
 
 QTEST_GUILESS_MAIN(TestDiff)
