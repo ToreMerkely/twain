@@ -110,4 +110,10 @@ if(TWAIN_TESTS)
 
     # ImageDiffView has no twain-internal dependencies.
     twain_add_widget_test(test_imagediffview src/ImageDiffView.cpp)
+
+    # MainWindow ties the whole view layer together.
+    twain_add_widget_test(test_mainwindow
+        src/MainWindow.cpp
+        src/ImageDiffView.cpp
+        ${TWAIN_VIEW_SOURCES})
 endif()
