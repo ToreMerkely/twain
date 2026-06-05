@@ -1,0 +1,49 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake qt6-base-dev
+
+      - name: Run tests
+        run: |
+          cmake -S . -B build-test -DCMAKE_BUILD_TYPE=Debug -DTWAIN_TESTS=ON
+          cmake --build build-test
+          ctest --test-dir build-test --output-on-failure
+
+      - name: Build release binary
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DTWAIN_VERSION="$VERSION"
+          cmake --build build
+
+      - name: Package
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          STAGE="twain-${VERSION}-linux-x86_64"
+          mkdir "$STAGE"
+          cp build/twain LICENSE README.md "$STAGE"/
+          tar -czf "${STAGE}.tar.gz" "$STAGE"
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          gh release create "$GITHUB_REF_NAME" \
+            --title "twain ${VERSION}" \
+            --generate-notes \
+            "twain-${VERSION}-linux-x86_64.tar.gz"

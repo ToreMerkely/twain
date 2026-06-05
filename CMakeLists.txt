@@ -1,5 +1,22 @@
 cmake_minimum_required(VERSION 3.16)
-project(twain VERSION 1.0.0 LANGUAGES CXX)
+project(twain LANGUAGES CXX)
+
+# Single source of truth for the version is the git tag. The release
+# workflow passes -DTWAIN_VERSION=x.y.z explicitly; local builds fall
+# back to `git describe` (e.g. "1.0.0" on a tag, "1.0.0-3-gabc123"
+# between tags). Captured at configure time.
+if(NOT TWAIN_VERSION)
+    execute_process(
+        COMMAND git describe --tags --always --dirty
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        OUTPUT_VARIABLE TWAIN_VERSION
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET)
+    string(REGEX REPLACE "^v" "" TWAIN_VERSION "${TWAIN_VERSION}")
+    if(NOT TWAIN_VERSION)
+        set(TWAIN_VERSION "unknown")
+    endif()
+endif()
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -30,6 +47,7 @@ add_executable(twain
 )
 
 target_link_libraries(twain PRIVATE Qt6::Widgets)
+target_compile_definitions(twain PRIVATE TWAIN_VERSION="${TWAIN_VERSION}")
 
 if(TWAIN_DEBUG)
     target_compile_definitions(twain PRIVATE TWAIN_DEBUG=1)
