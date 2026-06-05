@@ -62,6 +62,23 @@ if(TWAIN_COVERAGE)
     target_link_options(twain PRIVATE --coverage)
 endif()
 
+# Packaging: `make deb` (or `cpack -G DEB` in the build dir) builds a
+# Debian package. SHLIBDEPS derives the Qt6/glibc Depends: from the
+# linked libraries (needs dpkg-dev installed).
+install(TARGETS twain RUNTIME DESTINATION bin)
+install(FILES resources/twain.desktop DESTINATION share/applications)
+install(FILES resources/twain.svg DESTINATION share/icons/hicolor/scalable/apps)
+
+set(CPACK_PACKAGE_NAME "twain")
+set(CPACK_PACKAGE_VERSION "${TWAIN_VERSION}")
+set(CPACK_PACKAGE_CONTACT "Tore Martin Hagen <tore@kosli.com>")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Side-by-side diff tool for files and folders")
+set(CPACK_DEBIAN_PACKAGE_SECTION "devel")
+set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
+set(CPACK_DEBIAN_FILE_NAME DEB-DEFAULT)
+set(CPACK_GENERATOR "DEB")
+include(CPack)
+
 if(TWAIN_TESTS)
     find_package(Qt6 REQUIRED COMPONENTS Test)
     enable_testing()

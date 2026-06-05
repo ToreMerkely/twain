@@ -2,7 +2,7 @@ BUILD_DIR := build
 DEBUG_BUILD_DIR := build-debug
 TEST_BUILD_DIR := build-test
 
-.PHONY: build build-debug run run-debug test clean
+.PHONY: build build-debug run run-debug test deb clean
 
 build:
 	@cmake -S . -B $(BUILD_DIR) -DCMAKE_BUILD_TYPE=RelWithDebInfo
@@ -32,6 +32,9 @@ test:
 	@lcov --summary $(TEST_BUILD_DIR)/coverage.info
 	@genhtml --quiet $(TEST_BUILD_DIR)/coverage.info --output-directory $(TEST_BUILD_DIR)/coverage --ignore-errors inconsistent
 	@echo "HTML report: file://$(CURDIR)/$(TEST_BUILD_DIR)/coverage/index.html"
+
+deb: build
+	@cd $(BUILD_DIR) && cpack -G DEB
 
 clean:
 	@rm -rf $(BUILD_DIR) $(DEBUG_BUILD_DIR) $(TEST_BUILD_DIR)

@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=twain
+Comment=Side-by-side diff tool for files and folders
+Exec=twain %F
+Icon=twain
+Terminal=false
+Categories=Development;Utility;

@@ -16,7 +16,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y cmake qt6-base-dev
+          sudo apt-get install -y cmake qt6-base-dev dpkg-dev
 
       - name: Run tests
         run: |
@@ -37,6 +37,7 @@ jobs:
           mkdir "$STAGE"
           cp build/twain LICENSE README.md "$STAGE"/
           tar -czf "${STAGE}.tar.gz" "$STAGE"
+          (cd build && cpack -G DEB)
 
       - name: Create GitHub release
         env:
@@ -46,4 +47,5 @@ jobs:
           gh release create "$GITHUB_REF_NAME" \
             --title "twain ${VERSION}" \
             --generate-notes \
-            "twain-${VERSION}-linux-x86_64.tar.gz"
+            "twain-${VERSION}-linux-x86_64.tar.gz" \
+            build/twain_*.deb
