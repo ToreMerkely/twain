@@ -50,6 +50,7 @@ private slots:
     void next_prev_difference_navigation();
     void tall_block_scrolls_before_jumping();
     void scroll_sync_and_overview_requests();
+    void bottom_line_follows_horizontal_scroll();
     void ignore_case_option();
     void ignore_whitespace_option();
     void ignore_blank_lines_option();
@@ -207,6 +208,48 @@ void TestDiffView::scroll_sync_and_overview_requests() {
     QVERIFY(QMetaObject::invokeMethod(overview, "scrollRequested", Q_ARG(int, 11)));
     QCOMPARE(panes[0]->verticalScrollBar()->value(), 11);
     QCOMPARE(panes[1]->verticalScrollBar()->value(), 11);
+}
+
+void TestDiffView::bottom_line_follows_horizontal_scroll() {
+    const QByteArray tail(400, 'x');
+    const QString l = writeFile("hs-l.txt", "left " + tail + "\n");
+    const QString r = writeFile("hs-r.txt", "right " + tail + "\n");
+    DiffView dv;
+    dv.resize(500, 200);
+    dv.show();
+    QVERIFY(dv.setFiles(l, r));
+
+    auto panes = dv.findChildren<DiffPane*>();
+    QCOMPARE(panes.size(), 2);
+    QList<QPlainTextEdit*> bottom;
+    for (auto* e : dv.findChildren<QPlainTextEdit*>()) {
+        if (!qobject_cast<DiffPane*>(e)) bottom.append(e);
+    }
+    QCOMPARE(bottom.size(), 2);
+
+    // Selecting the line fills the bottom panes.
+    panes[0]->setTextCursor(QTextCursor(panes[0]->document()->firstBlock()));
+    QVERIFY(bottom[0]->toPlainText().startsWith("left "));
+
+    // The bottom panes start at the same column as the diff panes, despite
+    // rendering in a smaller font.
+    const qreal paneAdv = QFontMetricsF(panes[0]->font()).horizontalAdvance(' ');
+    const qreal bottomAdv = QFontMetricsF(bottom[0]->font()).horizontalAdvance(' ');
+    QVERIFY(paneAdv > 0 && bottomAdv > 0);
+    panes[0]->horizontalScrollBar()->setValue(qRound(paneAdv * 60));
+    for (auto* b : bottom) {
+        QVERIFY(b->horizontalScrollBar()->maximum() > 0);
+        QCOMPARE(qRound(b->horizontalScrollBar()->value() / bottomAdv), 60);
+    }
+
+    // Re-selecting the line must not throw the offset away. Put the cursor on a
+    // column that is already visible, so the pane itself does not scroll.
+    QTextCursor c(panes[1]->document()->firstBlock());
+    c.setPosition(c.block().position() + 65);
+    panes[1]->setTextCursor(c);
+    for (auto* b : bottom) {
+        QCOMPARE(qRound(b->horizontalScrollBar()->value() / bottomAdv), 60);
+    }
 }
 
 void TestDiffView::ignore_case_option() {

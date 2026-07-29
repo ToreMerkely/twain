@@ -94,6 +94,7 @@ void DiffView::applyDiffFontSize() {
     m_currentLeftLine->setFixedHeight(oneLineHeight);
     m_currentRightLine->setFont(bottomFont);
     m_currentRightLine->setFixedHeight(oneLineHeight);
+    syncBottomHScroll();
 }
 
 DiffView::DiffView(QWidget* parent) : QWidget(parent) {
@@ -267,6 +268,7 @@ DiffView::DiffView(QWidget* parent) : QWidget(parent) {
                 m_syncing = true;
                 m_right->horizontalScrollBar()->setValue(v);
                 m_syncing = false;
+                syncBottomHScroll();
             });
     connect(m_right->horizontalScrollBar(), &QScrollBar::valueChanged, this,
             [this](int v) {
@@ -274,6 +276,7 @@ DiffView::DiffView(QWidget* parent) : QWidget(parent) {
                 m_syncing = true;
                 m_left->horizontalScrollBar()->setValue(v);
                 m_syncing = false;
+                syncBottomHScroll();
             });
     connect(m_left, &DiffPane::arrowClicked, this,
             [this](int row) { onArrowClicked(/*fromLeftPane=*/true, row); });
@@ -1067,6 +1070,22 @@ void DiffView::updateCurrentLineDisplay(DiffPane* source) {
     };
     applySegs(m_currentLeftLine, ld.left);
     applySegs(m_currentRightLine, ld.right);
+
+    // setPlainText() reset the bottom panes to column 0.
+    syncBottomHScroll();
+}
+
+void DiffView::syncBottomHScroll() {
+    // The bottom panes use a smaller font than the diff panes, so copying the
+    // pixel offset would drift; convert through the column the pane starts at.
+    const qreal paneAdvance = QFontMetricsF(m_left->font()).horizontalAdvance(' ');
+    if (paneAdvance <= 0) return;
+    const qreal column = m_left->horizontalScrollBar()->value() / paneAdvance;
+    const qreal bottomAdvance =
+        QFontMetricsF(m_currentLeftLine->font()).horizontalAdvance(' ');
+    const int offset = qRound(column * bottomAdvance);
+    m_currentLeftLine->horizontalScrollBar()->setValue(offset);
+    m_currentRightLine->horizontalScrollBar()->setValue(offset);
 }
 
 void DiffView::clearPartialSelection() {

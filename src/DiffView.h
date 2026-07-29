@@ -136,6 +136,7 @@ private:
     void clearPartialSelection();
     void applyPartialVisuals();
     void updateCurrentLineDisplay(DiffPane* source);
+    void syncBottomHScroll();
     void setDirty(bool d);
 
     void syncScroll(DiffPane* source, DiffPane* target, int value);
