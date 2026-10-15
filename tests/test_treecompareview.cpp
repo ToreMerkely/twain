@@ -2,6 +2,8 @@
 
 #include <QDir>
 #include <QHeaderView>
+#include <QLabel>
+#include <QLineEdit>
 #include <QScrollBar>
 #include <QSettings>
 #include <QTemporaryDir>
@@ -71,6 +73,7 @@ private slots:
     void double_click_activates_file_and_toggles_dir();
     void header_and_splitter_state_round_trip();
     void font_size_applies_and_ctrl_wheel_zooms();
+    void search_bar_finds_names_and_wraps();
 
 };
 
@@ -306,6 +309,67 @@ int main(int argc, char* argv[]) {
     QApplication app(argc, argv);
     TestTreeCompareView tc;
     return QTest::qExec(&tc, argc, argv);
+}
+
+void TestTreeCompareView::search_bar_finds_names_and_wraps() {
+    const auto [l, r] = makeFixture("search");
+    TreeCompareView v;
+    v.setFolders(l, r);
+    v.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&v));
+    auto* edit = v.findChild<QLineEdit*>();
+    QVERIFY(edit);
+    QVERIFY(!edit->isVisible());
+    auto* tree = leftTree(v);
+    QVERIFY(tree);
+    // Right-only entries have an empty left-name column.
+    auto nameAt = [&]() {
+        const QModelIndex cur = tree->currentIndex();
+        const QString l = cur.siblingAtColumn(TreeCompareModel::kColLeftName).data().toString();
+        return l.isEmpty()
+            ? cur.siblingAtColumn(TreeCompareModel::kColRightName).data().toString()
+            : l;
+    };
+    QLabel* status = nullptr;
+    for (auto* lb : v.findChildren<QLabel*>()) {
+        if (lb->text().isEmpty()) status = lb;
+    }
+    QVERIFY(status);
+
+    v.showSearchBar();
+    QVERIFY(edit->isVisible());
+    QVERIFY(edit->hasFocus());
+
+    // Typing jumps to the first match from the current position; case-insensitive.
+    edit->setText("INNER");
+    QCOMPARE(nameAt(), QString("inner.txt"));
+    QCOMPARE(status->text(), QString("1/1"));
+
+    // Two matches for "only"; next/prev cycle and wrap.
+    edit->setText("only");
+    QCOMPARE(nameAt(), QString("only-left.txt"));
+    QCOMPARE(status->text(), QString("1/2"));
+    QVERIFY(v.findNext());
+    QCOMPARE(nameAt(), QString("only-right.txt"));
+    QCOMPARE(status->text(), QString("2/2"));
+    QVERIFY(v.findNext());
+    QCOMPARE(nameAt(), QString("only-left.txt"));
+    QVERIFY(v.findPrev());
+    QCOMPARE(nameAt(), QString("only-right.txt"));
+
+    // Directory names match too.
+    edit->setText("sub");
+    QCOMPARE(nameAt(), QString("sub"));
+
+    edit->setText("nope");
+    QCOMPARE(status->text(), QString("no matches"));
+    QVERIFY(!v.findNext());
+
+    // Esc clears, hides, and returns focus to the tree.
+    QTest::keyClick(edit, Qt::Key_Escape);
+    QVERIFY(!edit->isVisible());
+    QVERIFY(edit->text().isEmpty());
+    QVERIFY(tree->hasFocus());
 }
 
 #include "test_treecompareview.moc"

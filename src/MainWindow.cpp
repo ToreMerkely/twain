@@ -249,6 +249,7 @@ void MainWindow::createActions() {
     findAct->setShortcut(QKeySequence::Find);
     connect(findAct, &QAction::triggered, this, [this]() {
         if (auto* dv = currentDiffView()) dv->showSearchBar();
+        else if (auto* tv = currentTreeView()) tv->showSearchBar();
     });
     addAction(findAct);
 

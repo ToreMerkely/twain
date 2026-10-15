@@ -10,6 +10,8 @@
 #include "TreeCompare.h"
 #include "TreeCompareModel.h"
 
+class QLabel;
+class QLineEdit;
 class QSplitter;
 class QTreeView;
 
@@ -38,6 +40,13 @@ public:
 
     void focusTree();
 
+    // File-name search bar (Ctrl+F). Matches entry names case-insensitively
+    // among the rows visible under the current filter, wrapping around.
+    void showSearchBar();
+    void hideSearchBar();
+    bool findNext();
+    bool findPrev();
+
     // Apply the current diff font size (managed by DiffView) to both trees.
     void applyDiffFontSize();
 
@@ -59,10 +68,18 @@ private:
     void recountLeaves();
     void recountWalk(const TreeCompare::Entry& entry);
 
+    bool matches(const QModelIndex& idx) const;
+    bool findFrom(const QModelIndex& start, bool forward, bool includeStart);
+    void updateSearchStatus();
+
     QSplitter* m_splitter;
     QTreeView* m_left;
     QTreeView* m_right;
     TreeCompareModel* m_model;
+
+    QWidget* m_searchBar = nullptr;
+    QLineEdit* m_searchEdit = nullptr;
+    QLabel* m_searchStatus = nullptr;
 
     bool m_syncingScroll = false;
     bool m_syncingExpand = false;

@@ -10,7 +10,11 @@
 #include <QScrollBar>
 #include <QSplitter>
 #include <QKeyEvent>
+#include <QLabel>
+#include <QLineEdit>
+#include <QToolButton>
 #include <QTreeView>
+#include <QVBoxLayout>
 #include <QWheelEvent>
 
 #include "DebugLog.h"
@@ -157,9 +161,48 @@ TreeCompareView::TreeCompareView(QWidget* parent) : QWidget(parent) {
 
     m_right->setSelectionModel(m_left->selectionModel());
 
-    auto* layout = new QHBoxLayout(this);
+    m_searchBar = new QWidget(this);
+    {
+        auto* lay = new QHBoxLayout(m_searchBar);
+        lay->setContentsMargins(4, 2, 4, 2);
+        lay->setSpacing(4);
+        auto* label = new QLabel("Find:", m_searchBar);
+        m_searchEdit = new QLineEdit(m_searchBar);
+        m_searchEdit->setClearButtonEnabled(true);
+        m_searchStatus = new QLabel(m_searchBar);
+        auto* prev = new QToolButton(m_searchBar);
+        prev->setText("◀");
+        prev->setToolTip("Previous (Shift+Enter / Shift+F3)");
+        auto* next = new QToolButton(m_searchBar);
+        next->setText("▶");
+        next->setToolTip("Next (Enter / F3)");
+        auto* close = new QToolButton(m_searchBar);
+        close->setText("✕");
+        close->setToolTip("Close (Esc)");
+        lay->addWidget(label);
+        lay->addWidget(m_searchEdit, 1);
+        lay->addWidget(m_searchStatus);
+        lay->addWidget(prev);
+        lay->addWidget(next);
+        lay->addWidget(close);
+
+        connect(m_searchEdit, &QLineEdit::textChanged, this, [this](const QString&) {
+            findFrom(m_left->currentIndex(), true, true);
+            updateSearchStatus();
+        });
+        connect(m_searchEdit, &QLineEdit::returnPressed, this, &TreeCompareView::findNext);
+        connect(next, &QToolButton::clicked, this, &TreeCompareView::findNext);
+        connect(prev, &QToolButton::clicked, this, &TreeCompareView::findPrev);
+        connect(close, &QToolButton::clicked, this, &TreeCompareView::hideSearchBar);
+        m_searchEdit->installEventFilter(this);
+    }
+    m_searchBar->hide();
+
+    auto* layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
-    layout->addWidget(m_splitter);
+    layout->setSpacing(0);
+    layout->addWidget(m_searchBar, 0);
+    layout->addWidget(m_splitter, 1);
 
     connect(m_left->verticalScrollBar(), &QScrollBar::valueChanged, this, [this](int v) {
         if (m_syncingScroll) return;
@@ -190,6 +233,27 @@ TreeCompareView::TreeCompareView(QWidget* parent) : QWidget(parent) {
 }
 
 bool TreeCompareView::eventFilter(QObject* obj, QEvent* event) {
+    if (obj == m_searchEdit && event->type() == QEvent::KeyPress) {
+        auto* ke = static_cast<QKeyEvent*>(event);
+        if (ke->key() == Qt::Key_Escape) {
+            hideSearchBar();
+            return true;
+        }
+        if ((ke->key() == Qt::Key_Return || ke->key() == Qt::Key_Enter) &&
+            (ke->modifiers() & Qt::ShiftModifier)) {
+            findPrev();
+            return true;
+        }
+    }
+    if ((obj == m_left || obj == m_right || obj == m_searchEdit) &&
+        event->type() == QEvent::KeyPress) {
+        auto* ke = static_cast<QKeyEvent*>(event);
+        if (ke->key() == Qt::Key_F3 && m_searchBar->isVisible()) {
+            if (ke->modifiers() & Qt::ShiftModifier) findPrev();
+            else findNext();
+            return true;
+        }
+    }
     if ((obj == m_left || obj == m_right) && event->type() == QEvent::KeyPress) {
         auto* ke = static_cast<QKeyEvent*>(event);
         if (ke->key() == Qt::Key_Return || ke->key() == Qt::Key_Enter) {
@@ -407,6 +471,90 @@ void TreeCompareView::recountWalk(const TreeCompare::Entry& entry) {
 }
 
 void TreeCompareView::focusTree() { m_left->setFocus(); }
+
+void TreeCompareView::showSearchBar() {
+    m_searchBar->show();
+    m_searchEdit->setFocus();
+    m_searchEdit->selectAll();
+}
+
+void TreeCompareView::hideSearchBar() {
+    m_searchEdit->clear();
+    m_searchBar->hide();
+    m_left->setFocus();
+}
+
+bool TreeCompareView::findNext() {
+    const bool found = findFrom(m_left->currentIndex(), true, false);
+    updateSearchStatus();
+    return found;
+}
+
+bool TreeCompareView::findPrev() {
+    const bool found = findFrom(m_left->currentIndex(), false, false);
+    updateSearchStatus();
+    return found;
+}
+
+bool TreeCompareView::matches(const QModelIndex& idx) const {
+    const auto* e = m_model->entryFor(idx);
+    return e && e->name.contains(m_searchEdit->text(), Qt::CaseInsensitive);
+}
+
+// Walk the visible rows in document order from `start`, wrapping around at
+// the ends, and select the first entry whose name matches the search term.
+bool TreeCompareView::findFrom(const QModelIndex& start, bool forward, bool includeStart) {
+    if (m_searchEdit->text().isEmpty() || m_model->rowCount() == 0) return false;
+    auto step = [&](const QModelIndex& i) {
+        return forward ? nextDocOrderIndex(m_model, i) : prevDocOrderIndex(m_model, i);
+    };
+    // nextDocOrderIndex() has no "from the top" case, so wrap explicitly.
+    auto fromEnd = [&]() {
+        return forward ? m_model->index(0, 0) : prevDocOrderIndex(m_model, QModelIndex());
+    };
+    QModelIndex idx = includeStart && start.isValid() ? start
+                      : start.isValid()               ? step(start)
+                                                      : fromEnd();
+    bool wrapped = false;
+    while (true) {
+        if (!idx.isValid()) {
+            if (wrapped) return false;
+            wrapped = true;
+            idx = fromEnd();
+            if (!idx.isValid()) return false;
+        }
+        if (matches(idx)) {
+            QModelIndex p = idx.parent();
+            while (p.isValid()) {
+                m_left->expand(p);
+                p = p.parent();
+            }
+            m_left->setCurrentIndex(idx);
+            m_left->scrollTo(idx);
+            return true;
+        }
+        if (wrapped && idx == start) return false;
+        idx = step(idx);
+    }
+}
+
+void TreeCompareView::updateSearchStatus() {
+    if (m_searchEdit->text().isEmpty()) {
+        m_searchStatus->clear();
+        return;
+    }
+    int total = 0;
+    int cur = 0;
+    const QModelIndex current = m_left->currentIndex();
+    for (QModelIndex idx = m_model->index(0, 0); idx.isValid();
+         idx = nextDocOrderIndex(m_model, idx)) {
+        if (!matches(idx)) continue;
+        ++total;
+        if (idx == current) cur = total;
+    }
+    if (total == 0) m_searchStatus->setText("no matches");
+    else m_searchStatus->setText(QString("%1/%2").arg(cur).arg(total));
+}
 
 QByteArray TreeCompareView::saveSplitterState() const { return m_splitter->saveState(); }
 void TreeCompareView::restoreSplitterState(const QByteArray& state) { m_splitter->restoreState(state); }
