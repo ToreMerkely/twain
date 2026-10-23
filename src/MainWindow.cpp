@@ -535,9 +535,11 @@ void MainWindow::loadPair(const QString& leftPath, const QString& rightPath) {
 
     // Route image pairs to the image viewer; everything else goes through
     // the text-diff path. Same-extension check on both sides keeps us out
-    // of trouble when one side is an image and the other is text.
-    if (ImageDiffView::looksLikeImage(leftPath) &&
-        ImageDiffView::looksLikeImage(rightPath)) {
+    // of trouble when one side is an image and the other is text. An empty
+    // path is a missing side (folder compare) and doesn't count against it.
+    const bool leftImage = leftPath.isEmpty() || ImageDiffView::looksLikeImage(leftPath);
+    const bool rightImage = rightPath.isEmpty() || ImageDiffView::looksLikeImage(rightPath);
+    if (leftImage && rightImage && !(leftPath.isEmpty() && rightPath.isEmpty())) {
         // Reuse an existing image tab for this pair if one is open.
         for (int i = 0; i < m_tabs->count(); ++i) {
             if (auto* iv = qobject_cast<ImageDiffView*>(m_tabs->widget(i))) {

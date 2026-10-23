@@ -106,7 +106,10 @@ ImageDiffView::ImageDiffView(QWidget* parent) : QWidget(parent) {
 
 bool ImageDiffView::setFiles(const QString& leftPath, const QString& rightPath,
                              QString* error) {
+    // An empty path is a side that doesn't exist (e.g. a file added or
+    // removed in a folder compare); it loads as a blank pane.
     auto load = [error](const QString& path, QPixmap* out) -> bool {
+        if (path.isEmpty()) return true;
         QImageReader reader(path);
         reader.setAutoTransform(true);
         const QImage img = reader.read();
@@ -126,14 +129,22 @@ bool ImageDiffView::setFiles(const QString& leftPath, const QString& rightPath,
     m_rightPath = rightPath;
     m_leftItem->setPixmap(lp);
     m_rightItem->setPixmap(rp);
-    m_leftScene->setSceneRect(lp.rect());
-    m_rightScene->setSceneRect(rp.rect());
-    m_leftLabel->setText(leftPath);
-    m_leftLabel->setToolTip(QString("%1\n%2x%3 px").arg(leftPath)
-                                .arg(lp.width()).arg(lp.height()));
-    m_rightLabel->setText(rightPath);
-    m_rightLabel->setToolTip(QString("%1\n%2x%3 px").arg(rightPath)
-                                 .arg(rp.width()).arg(rp.height()));
+    // A blank pane borrows the other side's rect so fit, zoom and scroll
+    // stay in step with it.
+    m_leftScene->setSceneRect(lp.isNull() ? rp.rect() : lp.rect());
+    m_rightScene->setSceneRect(rp.isNull() ? lp.rect() : rp.rect());
+    auto setLabel = [](QLabel* label, const QString& path, const QPixmap& pm) {
+        if (path.isEmpty()) {
+            label->setText("(missing)");
+            label->setToolTip(QString());
+            return;
+        }
+        label->setText(path);
+        label->setToolTip(QString("%1\n%2x%3 px").arg(path)
+                              .arg(pm.width()).arg(pm.height()));
+    };
+    setLabel(m_leftLabel, leftPath, lp);
+    setLabel(m_rightLabel, rightPath, rp);
 
     // Wait until showEvent fires (and the views have a real size) before
     // computing the fit. If we fit now the viewports are still 0x0 and the
@@ -156,8 +167,8 @@ void ImageDiffView::fitInView() {
     }
     m_left->resetTransform();
     m_right->resetTransform();
-    m_left->fitInView(m_leftItem,  Qt::KeepAspectRatio);
-    m_right->fitInView(m_rightItem, Qt::KeepAspectRatio);
+    m_left->fitInView(m_leftScene->sceneRect(),  Qt::KeepAspectRatio);
+    m_right->fitInView(m_rightScene->sceneRect(), Qt::KeepAspectRatio);
     m_fitPending = false;
 }
 

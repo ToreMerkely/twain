@@ -41,6 +41,7 @@ private slots:
     void looks_like_image_by_extension();
     void set_files_loads_images_and_labels();
     void set_files_fails_on_undecodable_input();
+    void set_files_accepts_missing_side();
     void ctrl_wheel_zooms_both_views_in_lockstep();
     void scrollbars_stay_in_sync();
 };
@@ -107,6 +108,31 @@ void TestImageDiffView::set_files_fails_on_undecodable_input() {
 
     // A failed load leaves the paths unset.
     QVERIFY(v.leftPath().isEmpty());
+}
+
+void TestImageDiffView::set_files_accepts_missing_side() {
+    const QString png = makePng("one-sided.png", 30, 20, Qt::green);
+
+    auto labelTexts = [](ImageDiffView& v) {
+        QStringList texts;
+        for (auto* lbl : v.findChildren<QLabel*>()) texts << lbl->text();
+        return texts;
+    };
+
+    ImageDiffView v;
+    v.resize(600, 400);
+    QVERIFY(v.setFiles(QString(), png));
+    QVERIFY(v.leftPath().isEmpty());
+    QCOMPARE(v.rightPath(), png);
+    QVERIFY(labelTexts(v).contains("(missing)"));
+    QVERIFY(labelTexts(v).contains(png));
+    v.show();
+
+    QVERIFY(v.setFiles(png, QString()));
+    QCOMPARE(v.leftPath(), png);
+    QVERIFY(v.rightPath().isEmpty());
+    QVERIFY(labelTexts(v).contains("(missing)"));
+    QVERIFY(labelTexts(v).contains(png));
 }
 
 void TestImageDiffView::ctrl_wheel_zooms_both_views_in_lockstep() {
